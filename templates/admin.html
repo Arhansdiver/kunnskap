@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>KUNNSKAP – Panel administrador</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <input type="hidden" id="userRol" value="{{ rol }}">
+    <header class="top-bar">
+        <div class="logo">
+            <span class="logo-main">KUNNSKAP</span>
+            <span class="logo-sub">Panel de administración</span>
+        </div>
+        <button id="btnLogout" class="btn-outline">Cerrar sesión</button>
+    </header>
+
+    <!-- Tabs -->
+    <div class="tabs-container">
+         <button class="tab-btn tab-active" data-tab="dashboard">Dashboard</button>
+        <button class="tab-btn" data-tab="pedidos">Pedidos</button>
+        <button class="tab-btn" data-tab="pagos">Pagos & Deudas</button>
+        <button class="tab-btn" data-tab="reportes">Reportes</button>
+        <button class="tab-btn" data-tab="inventario">Inventario</button>
+        <button class="tab-btn" data-tab="usuarios">Usuarios</button>
+        <button class="tab-btn" data-tab="recetario">Recetario</button>
+
+        <!-- Más adelante podríamos agregar: Pagos / Reportes -->
+    </div>
+
+    <main class="admin-layout">
+        <section id="vistaDashboard" class="admin-panel">
+    <div class="panel-header">
+        <h2>Dashboard general</h2>
+        <span class="pill pill-live">Resumen en tiempo real</span>
+    </div>
+    <p class="panel-subtitle">
+        Visualiza las métricas clave de KUNNSKAP: ventas, pedidos activos, pagos pendientes, productos más vendidos e inventario.
+    </p>
+
+    <!-- Tarjetas métricas -->
+    <div class="dash-metrics">
+        <div class="metric-card">
+            <span class="metric-label">Ventas hoy</span>
+            <span class="metric-value" id="metVentasHoy">S/ 0.00</span>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Ventas semana</span>
+            <span class="metric-value" id="metVentasSemana">S/ 0.00</span>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Ventas mes</span>
+            <span class="metric-value" id="metVentasMes">S/ 0.00</span>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Pedidos activos</span>
+            <span class="metric-value" id="metPedidosActivos">0</span>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Pagos pendientes</span>
+            <span class="metric-value" id="metPagosPendientes">0</span>
+        </div>
+    </div>
+
+    <!-- Gráficos -->
+    <div class="dash-charts">
+        <div class="dash-chart-card">
+            <h3>Top productos vendidos</h3>
+            <canvas id="chartTopProductos"></canvas>
+        </div>
+        <div class="dash-chart-card">
+            <h3>Estado del inventario</h3>
+            <canvas id="chartInventario"></canvas>
+        </div>
+    </div>
+</section>
+
+
+        <!-- VISTA PEDIDOS -->
+        <section id="vistaPedidos" class="admin-panel">
+            <div class="panel-header">
+                <h2>Pedidos en curso</h2>
+                <span class="pill pill-live">En tiempo real</span>
+            </div>
+            <p class="panel-subtitle">
+                Aquí verás todos los pedidos <strong>pendientes, en proceso y listos</strong>.
+            </p>
+
+            <div id="listaPedidos" class="lista-pedidos">
+                <!-- JS inyecta aquí las tarjetas de pedidos -->
+            </div>
+        </section>
+
+        <section id="vistaDetalle" class="admin-panel">
+            <div class="panel-header">
+                <h2>Detalle del pedido</h2>
+                <span id="tagPedidoSeleccionado" class="pill pill-muted">Sin selección</span>
+            </div>
+
+            <div id="detallePedido" class="detalle-pedido">
+                <p>Selecciona un pedido para ver sus productos, marcar ítems como listos y culminar el pedido.</p>
+            </div>
+        </section>
+
+ <!-- VISTA USUARIOS -->
+<section id="vistaUsuarios" class="admin-panel hidden">
+    <div class="panel-header">
+        <h2>Gestión de Usuarios</h2>
+        <span class="pill pill-muted">Control de accesos</span>
+    </div>
+
+    <p class="panel-subtitle">
+        Solo el administrador puede agregar usuarios, asignar roles y activar/desactivar cuentas.
+    </p>
+
+    <!-- Botón agregar usuario -->
+    <div class="inv-actions">
+        <button id="btnNuevoUsuario" class="btn-primary">Nuevo usuario</button>
+    </div>
+
+    <div id="formUsuario" class="inv-form hidden">
+        <h3 id="formUsuarioTitulo">Nuevo Usuario</h3>
+
+        <div class="inv-form-row">
+            <label>Usuario</label>
+            <input type="text" id="usuNombre">
+        </div>
+
+        <div class="inv-form-row">
+            <label>Clave</label>
+            <input type="password" id="usuClave">
+        </div>
+
+        <div class="inv-form-row">
+            <label>Rol</label>
+            <select id="usuRol">
+                <option value="admin">Administrador</option>
+                <option value="mesero">Mesero</option>
+                <option value="caja">Caja</option>
+            </select>
+        </div>
+
+        <div class="inv-form-actions">
+            <button id="btnGuardarUsuario" class="btn-primary">Guardar</button>
+            <button id="btnCancelarUsuario" class="btn-outline">Cancelar</button>
+        </div>
+    </div>
+
+    <div class="inv-table-wrapper">
+        <table class="inv-table">
+            <thead>
+                <tr>
+                    <th>Usuario</th>
+                    <th>Rol</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="tablaUsuarios"></tbody>
+        </table>
+    </div>
+</section>
+
+
+
+<!-- VISTA INVENTARIO -->
+<section id="vistaInventario" class="admin-panel hidden">
+    <div class="panel-header">
+        <h2>Inventario de ingredientes</h2>
+        <span class="pill pill-muted">Stock en tiempo real</span>
+    </div>
+
+    <p class="panel-subtitle">
+        Administra los ingredientes usados en las recetas. Cuando un producto se marca como <strong>listo</strong>,
+        se descuenta automáticamente.
+    </p>
+
+    <div class="inv-actions">
+        <button id="btnNuevoIngrediente" class="btn-primary">Nuevo ingrediente</button>
+    </div>
+
+    <!-- Formulario -->
+    <div id="formIngrediente" class="inv-form hidden">
+        <h3 id="formIngredienteTitulo">Nuevo ingrediente</h3>
+
+        <div class="inv-form-row">
+            <label>Nombre</label>
+            <input type="text" id="ingNombre">
+        </div>
+
+        <div class="inv-form-row">
+            <label>Unidad</label>
+            <select id="ingUnidad">
+                <option value="g">Gramos</option>
+                <option value="kg">Kilos</option>
+                <option value="ml">Mililitros</option>
+                <option value="l">Litros</option>
+                <option value="u">Unidades</option>
+            </select>
+        </div>
+
+        <div class="inv-form-row">
+            <label>Stock actual</label>
+            <input type="number" step="0.001" id="ingStockActual">
+        </div>
+
+        <div class="inv-form-row">
+            <label>Stock mínimo</label>
+            <input type="number" step="0.001" id="ingStockMinimo">
+        </div>
+
+        <div class="inv-form-actions">
+            <button id="btnGuardarIngrediente" class="btn-primary">Guardar</button>
+            <button id="btnCancelarIngrediente" class="btn-outline">Cancelar</button>
+        </div>
+    </div>
+
+    <!-- Tabla -->
+    <div class="inv-table-wrapper">
+        <table class="inv-table">
+            <thead>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Unidad</th>
+                    <th>Stock actual</th>
+                    <th>Mínimo</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="tablaIngredientes"></tbody>
+        </table>
+    </div>
+</section>
+
+
+<!-- VISTA RECETARIO -->
+<section id="vistaRecetario" class="admin-panel hidden">
+
+    <div class="panel-header">
+        <h2>Recetario</h2>
+        <span class="pill pill-muted">Gestión de recetas</span>
+    </div>
+
+    <p class="panel-subtitle">
+        Administra las recetas base de KUNNSKAP. Cada receta se vincula por nombre al producto.
+    </p>
+
+    <div class="inv-actions">
+        <button id="btnNuevaReceta" class="btn-primary">Nueva receta</button>
+    </div>
+
+    <div class="recetario-layout">
+        <div class="recetario-lista">
+            <h3>Recetas registradas</h3>
+            <div id="listaRecetas" class="pagos-grid"></div>
+        </div>
+
+        <div class="recetario-form-wrapper">
+            <h3 id="tituloFormReceta">Nueva receta</h3>
+
+            <div id="formReceta" class="inv-form hidden">
+
+                <div class="inv-form-row">
+                    <label>Nombre del producto / receta</label>
+                    <input type="text" id="recetaProductoNombre">
+                </div>
+
+                <div class="inv-form-row">
+                    <label>Descripción</label>
+                    <textarea id="recetaDescripcion" rows="2"></textarea>
+                </div>
+
+                <h4>Ingredientes</h4>
+                <div id="recetaIngredientes"></div>
+
+                <button id="btnAgregarIngrediente" class="btn-outline" type="button">+ Agregar ingrediente</button>
+
+                <div class="inv-form-actions">
+                    <button id="btnGuardarReceta" class="btn-primary" type="button">Guardar</button>
+                    <button id="btnCancelarReceta" class="btn-outline" type="button">Cancelar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+
+
+
+<!-- VISTA PAGOS -->
+<section id="vistaPagos" class="admin-panel hidden">
+    <div class="panel-header">
+        <h2>Pagos & Deudas</h2>
+        <span class="pill pill-muted">Control de caja</span>
+    </div>
+
+    <p class="panel-subtitle">
+        Administra pagos de pedidos culminados.
+    </p>
+
+    <div class="pagos-layout">
+        <div class="pagos-list">
+            <h3>Pedidos por cobrar</h3>
+            <div id="listaPorCobrar" class="pagos-grid"></div>
+
+            <h3>Pagados</h3>
+            <div id="listaPagados" class="pagos-grid"></div>
+        </div>
+
+        <div class="pagos-detalle">
+            <h3>Detalle del pago</h3>
+            <div id="detallePago">Selecciona un pedido.</div>
+        </div>
+    </div>
+</section>
+
+
+
+
+<!-- VISTA REPORTES -->
+<section id="vistaReportes" class="admin-panel hidden">
+    <div class="panel-header">
+        <h2>Reportes</h2>
+        <span class="pill pill-muted">Historial financiero</span>
+    </div>
+
+    <div class="reportes-actions">
+        <button id="btnCierreDiario" class="btn-primary">Cierre de Caja (Diario)</button>
+    </div>
+
+    <div class="reportes-layout">
+        <div class="reporte-card">
+            <h3>Reporte Diario</h3>
+            <div id="reporteDiario">Sin datos.</div>
+        </div>
+
+        <div class="reporte-card">
+            <h3>Reporte Semanal</h3>
+            <div id="reporteSemanal">Sin datos.</div>
+        </div>
+    </div>
+</section>
+
+</main>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>KUNNSKAP – Cafetería</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <header class="top-bar">
+        <div class="logo">
+            <span class="logo-main">KUNNSKAP</span>
+            <span class="logo-sub">Coffee & Knowledge</span>
+        </div>
+        <button id="btnAdminLogin" class="btn-outline">Admin</button>
+    </header>
+
+    <main class="layout">
+        <section class="hero">
+            <h1>Bienvenido a KUNNSKAP</h1>
+            <p>
+                Una cafetería pensada para estudiantes, lectores y soñadores. 
+                Pide desde tu mesa y deja que nosotros nos encarguemos del resto.
+            </p>
+            <div class="hero-actions">
+                <button id="btnVerCarta" class="btn-primary">Ver carta y hacer pedido</button>
+            </div>
+        </section>
+
+        <section class="login-card">
+            <h2>Ingreso de personal</h2>
+            <label>Usuario</label>
+            <input type="text" id="loginUsuario" placeholder="usuario">
+
+            <label>Contraseña</label>
+            <input type="password" id="loginClave" placeholder="********">
+
+            <button id="btnLogin" class="btn-primary full">Ingresar</button>
+            <p class="login-hint">Solo acceso interno del personal autorizado.</p>
+        </section>
+    </main>
+
+    <!-- Modal Carta / Pedido Cliente -->
+    <div id="modalCarta" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Carta KUNNSKAP</h2>
+                <button id="btnCerrarCarta" class="btn-close">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="listaProductos" class="menu-grid">
+                    <!-- JS inyecta productos aquí -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="pedido-resumen">
+                    <p><strong>Total:</strong> S/ <span id="totalPedido">0.00</span></p>
+                    <input type="text" id="clienteNombre" placeholder="Tu nombre">
+                    <input type="text" id="clienteMesa" placeholder="N° de mesa">
+                    <button id="btnEnviarPedido" class="btn-primary">Enviar pedido</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Admin Login rápido (desde botón arriba) -->
+    <div id="modalAdmin" class="modal hidden">
+        <div class="modal-content small">
+            <div class="modal-header">
+                <h2>Ingreso administrador</h2>
+                <button id="btnCerrarAdminModal" class="btn-close">×</button>
+            </div>
+            <div class="modal-body">
+                <p>Usa el formulario de la derecha para iniciar sesión.</p>
+                <button id="btnIrLogin" class="btn-outline full">Ir al formulario</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
