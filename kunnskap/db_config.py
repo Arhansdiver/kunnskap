@@ -1,10 +1,11 @@
 import mysql.connector
+import os
 
 DB_CONFIG = {
-    "host": "aribert.helioho.st",       # ej: aribert.helioho.st
-    "user": "aribert_kunnskap1",
-    "password": "123456789",
-    "database": "aribert_KUNNSKAP"
+    "host": os.getenv("DB_HOST"),
+    "user": os.getenv("DB_USER"),
+    "password": os.getenv("DB_PASSWORD"),
+    "database": os.getenv("DB_NAME")
 }
 
 def get_connection():
