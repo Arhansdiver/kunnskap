@@ -565,6 +565,23 @@ else {
         });
     }
 
+    function showRecetaAlert(tipo, mensaje) {
+    const box = document.getElementById("alertReceta");
+
+    box.className = "receta-alert";
+    showRecetaAlert("ok", "Producto agregado al menú.");
+    showRecetaAlert("error", "Este producto ya existe.");
+    showRecetaAlert("warn", "Este producto no está en el menú.");
+
+    box.textContent = mensaje;
+    box.style.display = "block";
+
+    setTimeout(() => {
+        box.style.display = "none";
+    }, 2000);
+}
+
+
     function calcularEstadoStock(stockActual, stockMinimo) {
         const sa = parseFloat(stockActual);
         const sm = parseFloat(stockMinimo);
@@ -637,26 +654,30 @@ function editarIngrediente(ing) {
         }
     }
 
-    // PAGOS
+// ==========================
+//        PAGOS REALES
+// ==========================
+
 const listaPorCobrar = document.getElementById("listaPorCobrar");
 const listaPagados = document.getElementById("listaPagados");
 const detallePago = document.getElementById("detallePago");
 
 let pedidoParaPagar = null;
 
-// Cargar pagos al cambiar de tab
-async function cargarPagos(){
+// Cargar pagos
+async function cargarPagos() {
     await cargarPendientesPago();
     await cargarPagados();
 }
 
-async function cargarPendientesPago(){
+// Pedidos pendientes de pago
+async function cargarPendientesPago() {
     const resp = await fetch("/api/admin/pagos/pendientes");
     const data = await resp.json();
 
     listaPorCobrar.innerHTML = "";
 
-    data.pendientes.forEach(p => {
+    (data.pendientes || []).forEach(p => {
         const card = document.createElement("div");
         card.className = "pago-card";
         card.innerHTML = `
@@ -664,43 +685,23 @@ async function cargarPendientesPago(){
             Cliente: ${p.cliente_nombre}<br>
             Mesa: ${p.mesa}<br>
             Total: S/ ${Number(p.total).toFixed(2)}
-
         `;
 
-        card.addEventListener("click", () => {
-            mostrarDetallePago(p);
-        });
-
+        card.addEventListener("click", () => mostrarDetallePago(p));
         listaPorCobrar.appendChild(card);
     });
 }
 
-async function cargarPagados(){
-    const resp = await fetch("/api/admin/pagos/pagados");
-    const data = await resp.json();
-
-    listaPagados.innerHTML = "";
-
-    data.pagados.forEach(p => {
-        const card = document.createElement("div");
-        card.className = "pago-card";
-        card.innerHTML = `
-            <strong>Pedido #${p.pedido_id}</strong><br>
-            Cliente: ${p.cliente_nombre}<br>
-            Mesa: ${p.mesa}<br>
-            Total: S/ ${Number(p.total).toFixed(2)}
-
-        `;
-        listaPagados.appendChild(card);
-    });
-}
-
-function mostrarDetallePago(pedido){
-    pedidoParaPagar = pedido;
+// Pagados
+function mostrarDetallePago(p) {
+    pedidoParaPagar = p;
+    const total = Number(p.total).toFixed(2);
 
     detallePago.innerHTML = `
-        <h4>Pedido #${pedido.id}</h4>
-        <p><strong>Total:</strong> S/ ${Number(pedido.total).toFixed(2)}</p>
+        <div class="pago-alert pago-alert-info hidden" id="alertPago"></div>
+
+        <h4>Pedido #${p.pedido_id}</h4>
+        <p><strong>Total:</strong> S/ ${total}</p>
 
         <label>Método de pago</label>
         <select id="pagoMetodo">
@@ -709,55 +710,179 @@ function mostrarDetallePago(pedido){
             <option value="tarjeta">Tarjeta (+3%)</option>
         </select>
 
-        <label>Monto recibido</label>
-        <input type="number" id="pagoMonto" placeholder="Ej: 50.00">
+        <div id="grupoMonto">
+            <label>Monto recibido</label>
+            <input type="number" id="pagoMonto" placeholder="Ej: 50.00">
+        </div>
 
-        <label>Comprobante (opcional)</label>
-        <input type="text" id="pagoComprobante" placeholder="URL imagen (para yape)">
+        <div class="vuelto-preview hidden" id="previewVuelto">Vuelto: S/ 0.00</div>
+
+        <div id="grupoRecargo" class="hidden">
+            <p><strong>Recargo tarjeta (3%):</strong> S/ <span id="txtRecargo">0.00</span></p>
+        </div>
+
+        <label>Comprobante (Yape)</label>
+        <input type="text" id="pagoComprobante" placeholder="URL imagen">
 
         <button class="btn-primary" id="btnConfirmarPago">Confirmar pago</button>
     `;
 
-    // Solo este botón existe ahora
+    document.getElementById("pagoMetodo").addEventListener("change", actualizarUI);
+    document.getElementById("pagoMonto").addEventListener("input", actualizarEfectivo);
     document.getElementById("btnConfirmarPago").addEventListener("click", procesarPago);
+    actualizarUI();
+}
+
+
+function actualizarUI() {
+    const metodo = document.getElementById("pagoMetodo").value;
+    const total = Number(pedidoParaPagar.total);
+
+    const grupoMonto = document.getElementById("grupoMonto");
+    const grupoRecargo = document.getElementById("grupoRecargo");
+    const previewVuelto = document.getElementById("previewVuelto");
+    const comprobante = document.getElementById("pagoComprobante");
+
+    grupoMonto.classList.add("hidden");
+    grupoRecargo.classList.add("hidden");
+    previewVuelto.classList.add("hidden");
+
+    comprobante.disabled = true;
+
+    if (metodo === "efectivo") {
+        grupoMonto.classList.remove("hidden");
+    }
+
+    if (metodo === "yape") {
+        comprobante.disabled = false;
+    }
+
+    if (metodo === "tarjeta") {
+        if (total >= 20) {
+            const rec = (total * 0.03).toFixed(2);
+            document.getElementById("txtRecargo").textContent = rec;
+            grupoRecargo.classList.remove("hidden");
+        }
+    }
+}
+
+
+function actualizarEfectivo() {
+    const monto = Number(document.getElementById("pagoMonto").value || 0);
+    const total = Number(pedidoParaPagar.total);
+
+    const preview = document.getElementById("previewVuelto");
+
+    if (monto === 0) {
+        preview.classList.add("hidden");
+        return;
+    }
+
+    preview.classList.remove("hidden");
+
+    if (monto < total) {
+        preview.classList.remove("ok");
+        preview.classList.add("bad");
+        preview.textContent = "Monto insuficiente";
+    } else {
+        preview.classList.remove("bad");
+        preview.classList.add("ok");
+        preview.textContent = `Vuelto: S/ ${(monto - total).toFixed(2)}`;
+    }
 }
 
 
 async function procesarPago() {
     const metodo = document.getElementById("pagoMetodo").value;
-    let montoRecibido = parseFloat(document.getElementById("pagoMonto").value || 0);
-    const comprobante = document.getElementById("pagoComprobante").value || null;
-
     const total = Number(pedidoParaPagar.total);
-    let recargo = 0;
+
+    const alerta = document.getElementById("alertPago");
+    const inpMonto = document.getElementById("pagoMonto");
+    const comprobante = document.getElementById("pagoComprobante").value.trim();
+
+    // reset visual
+    alerta.classList.add("hidden");
+    alerta.textContent = "";
+    inpMonto.classList.remove("pago-input-error");
+
+    function showError(msg) {
+        alerta.className = "pago-alert pago-alert-error";
+        alerta.textContent = msg;
+        alerta.classList.remove("hidden");
+    }
+
+    let montoFinal = total;
     let vuelto = 0;
+    let recargo = 0;
 
-    // --- EFECTIVO ---
+    // ======================
+    // 🔵 EFECTIVO
+    // ======================
     if (metodo === "efectivo") {
-        if (montoRecibido < total) {
-            return alert("El monto recibido es menor al total a pagar.");
+        const recibido = Number(inpMonto.value || 0);
+
+        if (!recibido || recibido <= 0) {
+            showError("Debe ingresar un monto válido.");
+            inpMonto.classList.add("pago-input-error");
+            return;
         }
-        vuelto = montoRecibido - total;
+
+        if (recibido < total) {
+            showError("El monto recibido no puede ser menor al total.");
+            inpMonto.classList.add("pago-input-error");
+            return;
+        }
+
+        vuelto = recibido - total;
+        montoFinal = total;  // SE REGISTRA LO QUE SE COBRA, NO LO RECIBIDO
     }
 
-    // --- TARJETA ---
+    // ======================
+    // 🟣 YAPE
+    // ======================
+    if (metodo === "yape") {
+
+        // No debe ingresar monto → lo deshabilitamos
+        inpMonto.value = "";
+        inpMonto.disabled = true;
+
+        if (!comprobante) {
+            showError("Debe ingresar el comprobante (URL de Yape).");
+            return;
+        }
+
+        // Debe pagar EXACTO
+        montoFinal = total;
+    } else {
+        inpMonto.disabled = false;
+    }
+
+    // ======================
+    // 🔴 TARJETA
+    // ======================
     if (metodo === "tarjeta") {
-        recargo = total * 0.03;
-        montoRecibido = total + recargo;
+
+        // No se ingresa monto manual
+        inpMonto.value = "";
+        inpMonto.disabled = true;
+
+        if (total >= 20) {
+            recargo = total * 0.03;
+        }
+
+        montoFinal = total + recargo;
     }
 
-    // --- YAPE ---
-    if (metodo === "yape" && !comprobante) {
-        return alert("Debe ingresar el comprobante (URL de Yape).");
-    }
-
+    // ================================
+    // 🟢 ENVIAR AL SERVIDOR
+    // ================================
     const body = {
         pedido_id: pedidoParaPagar.pedido_id || pedidoParaPagar.id,
         metodo,
-        monto: montoRecibido,
+        monto: montoFinal,   // monto REAL a cobrar
         vuelto,
         recargo,
-        comprobante_url: comprobante
+        comprobante_url: comprobante || null
     };
 
     const resp = await fetch("/api/admin/pagos/registrar", {
@@ -768,30 +893,29 @@ async function procesarPago() {
 
     const data = await resp.json();
 
-    if (data.ok) {
-        alert("Pago registrado correctamente.");
-
-        detallePago.innerHTML = `
-            <h4>Pago completado</h4>
-            <p><strong>Método:</strong> ${metodo}</p>
-            <p><strong>Total:</strong> S/ ${total.toFixed(2)}</p>
-            ${metodo === "efectivo" ? `<p><strong>Entregado:</strong> S/ ${montoRecibido.toFixed(2)}</p>
-            <p><strong>Vuelto:</strong> S/ ${vuelto.toFixed(2)}</p>` : ""}
-            ${metodo === "tarjeta" ? `<p><strong>Incluye recargo 3%:</strong> S/ ${recargo.toFixed(2)}</p>` : ""}
-            <button class="btn-outline" onclick="window.open('/api/admin/boleta/${pedidoParaPagar.pedido_id}', '_blank')">
-                Descargar Boleta
-            </button>
-            <button class="btn-outline" onclick="generarFactura(${pedidoParaPagar.pedido_id})">
-                Generar Factura
-            </button>
-        `;
-
-        cargarPagos();
-
-    } else {
-        alert(data.msg);
+    if (!data.ok) {
+        showError(data.msg || "Error al registrar el pago.");
+        return;
     }
+
+    // ===============================
+    // 💥 CORRECCIÓN DE DUPLICADOS
+    // ===============================
+    pedidoParaPagar = null;
+
+    alerta.className = "pago-alert pago-alert-ok";
+    alerta.textContent = "Pago registrado correctamente.";
+    alerta.classList.remove("hidden");
+
+    // Cargar nuevamente las listas para que desaparezca de 'por cobrar'
+    await cargarPendientesPago();
+    await cargarPagados();
+
+    setTimeout(() => {
+        detallePago.innerHTML = "Selecciona un pedido.";
+    }, 1000);
 }
+
 
 
 
@@ -1099,32 +1223,95 @@ function renderListaRecetas(recetas) {
 
     recetas.forEach(r => {
         const card = document.createElement("div");
-        card.className = "pago-card"; // reutilizo estilo
+        card.className = "pago-card";
+
         card.innerHTML = `
             <strong>${r.producto_nombre}</strong><br>
             <small>${r.descripcion || ""}</small><br>
             Ingredientes: ${r.total_ingredientes}
-            <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
+
+            <div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap;">
                 <button class="btn-mini btnVerReceta" data-id="${r.id}">Ver / Editar</button>
                 <button class="btn-mini btnDelReceta" data-id="${r.id}">Eliminar</button>
+
+                <button class="btn-mini btnAddMenu" data-prod="${r.producto_nombre}">
+                    + Agregar al menú
+                </button>
+
+                <button class="btn-mini btnRemoveMenu" data-prod="${r.producto_nombre}">
+                    - Quitar del menú
+                </button>
             </div>
         `;
 
-        const btnVer = card.querySelector(".btnVerReceta");
-        const btnDel = card.querySelector(".btnDelReceta");
+        // BOTONES EXISTENTES
+        card.querySelector(".btnVerReceta")
+            .addEventListener("click", () => editarReceta(r.id));
 
-        btnVer.addEventListener("click", () => {
-            editarReceta(r.id);
-        });
+        card.querySelector(".btnDelReceta")
+            .addEventListener("click", () => {
+                if (!confirm(`¿Eliminar la receta "${r.producto_nombre}"?`)) return;
+                eliminarReceta(r.id);
+            });
 
-        btnDel.addEventListener("click", () => {
-            if (!confirm(`¿Eliminar la receta "${r.producto_nombre}"?`)) return;
-            eliminarReceta(r.id);
-        });
+        // NUEVO → AGREGAR AL MENÚ
+        card.querySelector(".btnAddMenu")
+            .addEventListener("click", () => {
+                agregarAlMenu(r.producto_nombre);
+            });
+
+        // NUEVO → QUITAR DEL MENÚ
+        card.querySelector(".btnRemoveMenu")
+            .addEventListener("click", () => {
+                quitarDelMenu(r.producto_nombre);
+            });
 
         listaRecetas.appendChild(card);
     });
 }
+
+// ==============================
+//     MENU DEL NEGOCIO
+//     (AGREGAR / QUITAR)
+// ==============================
+
+// Agregar producto del recetario al menú
+async function agregarAlMenu(nombreReceta) {
+    const resp = await fetch("/api/admin/menu/agregar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: nombreReceta })
+    });
+
+    const data = await resp.json();
+
+    if (!data.ok) {
+        alert("⚠ " + (data.msg || "El producto ya se encuentra en el menú."));
+        return;
+    }
+
+    alert("✔ Producto agregado al menú correctamente.");
+}
+
+
+// Quitar producto del menú
+async function quitarDelMenu(nombreReceta) {
+    const resp = await fetch("/api/admin/menu/quitar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: nombreReceta })
+    });
+
+    const data = await resp.json();
+
+    if (!data.ok) {
+        alert("⚠ " + (data.msg || "Este producto no está en el menú."));
+        return;
+    }
+
+    alert("✔ Producto quitado del menú correctamente.");
+}
+
 
 function agregarFilaIngrediente(ing = null) {
     const row = document.createElement("div");

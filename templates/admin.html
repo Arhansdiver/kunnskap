@@ -235,7 +235,6 @@
     </div>
 </section>
 
-
 <!-- VISTA RECETARIO -->
 <section id="vistaRecetario" class="admin-panel hidden">
 
@@ -251,6 +250,9 @@
     <div class="inv-actions">
         <button id="btnNuevaReceta" class="btn-primary">Nueva receta</button>
     </div>
+
+    <!-- 🔔 ALERTA VISUAL DEL RECETARIO -->
+    <div id="alertReceta" class="receta-alert hidden"></div>
 
     <div class="recetario-layout">
         <div class="recetario-lista">
@@ -288,8 +290,6 @@
 </section>
 
 
-
-
 <!-- VISTA PAGOS -->
 <section id="vistaPagos" class="admin-panel hidden">
     <div class="panel-header">
@@ -310,13 +310,14 @@
             <div id="listaPagados" class="pagos-grid"></div>
         </div>
 
-        <div class="pagos-detalle">
+        <div class="pagos-detalle pagos-detalle-pro">
             <h3>Detalle del pago</h3>
-            <div id="detallePago">Selecciona un pedido.</div>
+            <div id="detallePago" class="pago-panel">
+                Selecciona un pedido.
+            </div>
         </div>
     </div>
 </section>
-
 
 
 

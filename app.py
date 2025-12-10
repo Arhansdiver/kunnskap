@@ -133,6 +133,33 @@ def api_menu():
 
 # --------- API: REGISTRAR PEDIDO CLIENTE --------- #
 
+@app.post("/api/admin/menu/agregar")
+def api_agregar_menu():
+    data = request.json
+    nombre = data.get("nombre")
+
+    # Verificar si ya existe en menú
+    existe = db.execute("SELECT id FROM menu WHERE nombre = %s", (nombre,))
+    if existe:
+        return jsonify(ok=False, msg="El producto ya se encuentra en el menú.")
+
+    db.execute("INSERT INTO menu (nombre) VALUES (%s)", (nombre,))
+    return jsonify(ok=True)
+
+
+@app.post("/api/admin/menu/quitar")
+def api_quitar_menu():
+    data = request.json
+    nombre = data.get("nombre")
+
+    existe = db.execute("SELECT id FROM menu WHERE nombre = %s", (nombre,))
+    if not existe:
+        return jsonify(ok=False, msg="El producto no está en el menú.")
+
+    db.execute("DELETE FROM menu WHERE nombre = %s", (nombre,))
+    return jsonify(ok=True)
+
+
 @app.route("/api/pedidos", methods=["POST"])
 def api_crear_pedido():
     data = request.get_json()
@@ -515,15 +542,75 @@ def api_registrar_pago():
     data = request.get_json()
 
     pedido_id = data.get("pedido_id")
-    metodo = data.get("metodo")
-    monto = float(data.get("monto"))
+    metodo = data.get("metodo")          # efectivo / yape / tarjeta
+    dinero_entregado = float(data.get("monto") or 0)
     comprobante = data.get("comprobante_url")
-    vuelto = float(data.get("vuelto", 0))
-    recargo = float(data.get("recargo", 0))
-
+    
     conn = get_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
 
+    # Obtener total real del pedido
+    cursor.execute("SELECT total FROM pedidos WHERE id = %s", (pedido_id,))
+    ped = cursor.fetchone()
+    if not ped:
+        return jsonify({"ok": False, "msg": "Pedido no encontrado"}), 404
+
+    total_real = float(ped["total"])
+
+    # --------------------------------------------
+    # 1) PAGO EN EFECTIVO
+    # --------------------------------------------
+    if metodo == "efectivo":
+
+        if dinero_entregado < total_real:
+            return jsonify({"ok": False, "msg": "El monto entregado es insuficiente"}), 400
+
+        vuelto = dinero_entregado - total_real
+        monto_cobrado = total_real  # lo que se registra en BD
+
+        recargo = 0
+
+    # --------------------------------------------
+    # 2) PAGO CON YAPE
+    # --------------------------------------------
+    elif metodo == "yape":
+
+        # en yape NO se acepta monto mayor NI menor
+        if dinero_entregado != 0 and dinero_entregado != total_real:
+            return jsonify({"ok": False, "msg": "En Yape el monto debe ser exacto"}), 400
+
+        monto_cobrado = total_real
+        vuelto = 0
+        recargo = 0
+
+    # --------------------------------------------
+    # 3) PAGO CON TARJETA
+    # --------------------------------------------
+    elif metodo == "tarjeta":
+
+        if total_real > 20:
+            recargo = round(total_real * 0.03, 2)
+        else:
+            recargo = 0
+
+        total_con_recargo = total_real + recargo
+
+        # monto debe ser EXACTO
+        if dinero_entregado != 0 and dinero_entregado != total_con_recargo:
+            return jsonify({"ok": False,
+                            "msg": f"El pago con tarjeta debe ser exactamente S/ {total_con_recargo:.2f}"}), 400
+
+        monto_cobrado = total_con_recargo
+        vuelto = 0
+
+    else:
+        return jsonify({"ok": False, "msg": "Método inválido"}), 400
+
+    # --------------------------------------------
+    # REGISTRO EN BD
+    # Guarda solo los valores correctos
+    # --------------------------------------------
+    cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO pagos (
             pedido_id, metodo, monto, vuelto, recargo, comprobante_url,
@@ -534,15 +621,14 @@ def api_registrar_pago():
             CONVERT_TZ(NOW(), @@global.time_zone, '-05:00'),
             'pagado'
         )
-    """, (pedido_id, metodo, monto, vuelto, recargo, comprobante))
+    """, (pedido_id, metodo, monto_cobrado, vuelto, recargo, comprobante))
 
     cursor.execute("UPDATE pedidos SET pagado = 1 WHERE id = %s", (pedido_id,))
-
     conn.commit()
     cursor.close()
     conn.close()
 
-    return jsonify({"ok": True, "msg": "Pago procesado correctamente"})
+    return jsonify({"ok": True, "msg": "Pago registrado correctamente"})
 
 @app.route("/api/admin/reportes/cierre", methods=["POST"])
 def api_generar_cierre_diario():
