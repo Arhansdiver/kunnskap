@@ -11,6 +11,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 from io import BytesIO
+
+
 app = Flask(__name__)
 app.secret_key = "clave_super_secreta_kunnskap"   # cámbiala
 
@@ -94,6 +96,103 @@ def generar_boleta_pdf(pedido_id):
         mimetype="application/pdf",
         download_name=f"boleta_{pedido_id}.pdf"
     )
+
+
+# --- GUARDAR CIERRE ---
+@app.route("/api/admin/reportes/cierre", methods=["POST"])
+def generar_cierre():
+    hoy = date.today()
+
+    conn = get_db()
+    cur = conn.cursor(dictionary=True)
+
+    # Verificar si ya existe cierre del día
+    cur.execute("SELECT * FROM cierres_caja WHERE fecha = %s", (hoy,))
+    existente = cur.fetchone()
+
+    if existente:
+        return generar_pdf_cierre(existente)
+
+    # Calcular totales del día
+    cur.execute("""
+        SELECT 
+            SUM(CASE WHEN metodo='efectivo' THEN monto ELSE 0 END) AS efectivo,
+            SUM(CASE WHEN metodo='yape' THEN monto ELSE 0 END) AS yape,
+            SUM(CASE WHEN metodo='tarjeta' THEN monto ELSE 0 END) AS tarjeta
+        FROM pagos
+        WHERE DATE(fecha_hora) = %s
+    """, (hoy,))
+
+    tot = cur.fetchone() or {}
+
+    efectivo = tot.get("efectivo", 0) or 0
+    yape     = tot.get("yape", 0) or 0
+    tarjeta  = tot.get("tarjeta", 0) or 0
+    total    = efectivo + yape + tarjeta
+
+    # Guardar en BD
+    cur.execute("""
+        INSERT INTO cierres_caja (fecha, total_efectivo, total_yape, total_tarjeta, total_general)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (hoy, efectivo, yape, tarjeta, total))
+
+    conn.commit()
+
+    # Generar PDF del cierre
+    return generar_pdf_cierre({
+        "fecha": hoy,
+        "total_efectivo": efectivo,
+        "total_yape": yape,
+        "total_tarjeta": tarjeta,
+        "total_general": total
+    })
+
+def generar_pdf_cierre(cierre):
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer)
+
+    c.setFont("Helvetica-Bold", 18)
+    c.drawString(180, 800, "CIERRE DE CAJA")
+
+    c.setFont("Helvetica", 12)
+    c.drawString(50, 760, f"Fecha: {cierre['fecha']}")
+
+    c.drawString(50, 720, f"Efectivo: S/ {cierre['total_efectivo']:.2f}")
+    c.drawString(50, 700, f"Yape: S/ {cierre['total_yape']:.2f}")
+    c.drawString(50, 680, f"Tarjeta: S/ {cierre['total_tarjeta']:.2f}")
+
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(50, 640, f"TOTAL GENERAL: S/ {cierre['total_general']:.2f}")
+
+    c.showPage()
+    c.save()
+
+    buffer.seek(0)
+    return send_file(buffer, download_name="cierre.pdf", as_attachment=False)
+
+
+@app.route("/api/cierres/lista")
+def lista_cierres():
+    conn = get_db()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("""
+        SELECT id, fecha, total_general 
+        FROM cierres_caja 
+        ORDER BY fecha DESC
+    """)
+    return {"ok": True, "cierres": cur.fetchall()}
+
+@app.route("/api/cierres/print/<int:cid>")
+def print_cierre(cid):
+    conn = get_db()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT * FROM cierres_caja WHERE id = %s", (cid,))
+    cierre = cur.fetchone()
+
+    if not cierre:
+        return {"ok": False, "msg": "Cierre no encontrado"}, 404
+
+    return generar_pdf_cierre(cierre)
 
 # --------- API: LOGIN / LOGOUT --------- #
 

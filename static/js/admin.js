@@ -154,7 +154,7 @@ else {
 
             if (tab === "reportes") {
             cargarReportes();
-            cargarCierresAnteriores(); // ← NUEVO
+            cargarCierres();
 
             } else if (tab === "dashboard") {
                 vistaDashboard.classList.remove("hidden");
@@ -285,6 +285,40 @@ else {
     }
 });
 
+    async function cargarCierres() {
+    const cont = document.getElementById("listaCierres");
+
+    const resp = await fetch("/api/cierres/lista");
+    const data = await resp.json();
+
+    if (!data.ok) {
+        cont.innerHTML = "Error cargando cierres.";
+        return;
+    }
+
+    if (!data.cierres.length) {
+        cont.innerHTML = "<p>No hay cierres registrados.</p>";
+        return;
+    }
+
+    cont.innerHTML = "";
+
+    data.cierres.forEach(c => {
+        cont.innerHTML += `
+            <p>
+                <strong>${c.fecha}</strong> — 
+                Total: S/ ${Number(c.total_general).toFixed(2)}
+                <button class="btn-mini" onclick="imprimirCierre(${c.id})">
+                    Imprimir
+                </button>
+            </p>
+        `;
+    });
+}
+
+function imprimirCierre(id) {
+    window.open(`/api/cierres/print/${id}`, "_blank");
+}
 
     // --- Funciones Pedidos ---
 
@@ -1030,6 +1064,7 @@ async function cargarReportes() {
     await cargarReporteDiario();
     await cargarReporteSemanal();
 }
+
 // Devuelve fecha local en formato YYYY-MM-DD
 function formatFechaLocal(date) {
     const y = date.getFullYear();
@@ -1039,84 +1074,50 @@ function formatFechaLocal(date) {
 }
 
 async function cargarReporteDiario() {
-    const hoy = formatFechaLocal(new Date());   // fecha local
-
-    const resp = await fetch("/api/admin/pagos/pagados");
-    const data = await resp.json();
-
     const cont = document.getElementById("reporteDiario");
 
-    let totalEfec = 0, totalYape = 0, totalTarj = 0;
+    const resp = await fetch("/api/admin/reportes/diario");
+    const data = await resp.json();
 
-    (data.pagados || []).forEach(p => {
-        // Convertimos la fecha del pago a local y la formateamos
-        const fechaPago = formatFechaLocal(new Date(p.fecha_hora));
+    if (!data.ok) {
+        cont.innerHTML = "Error cargando reporte diario.";
+        return;
+    }
 
-        if (fechaPago === hoy) {
-            const monto = Number(p.monto);
-            if (p.metodo === "efectivo") totalEfec += monto;
-            if (p.metodo === "yape")     totalYape += monto;
-            if (p.metodo === "tarjeta")  totalTarj += monto;
-        }
-    });
-
-    const totalGeneral = totalEfec + totalYape + totalTarj;
+    const r = data.data;
 
     cont.innerHTML = `
-        <h4>Reporte del día (${hoy})</h4>
-        <p>Efectivo: S/ ${totalEfec.toFixed(2)}</p>
-        <p>Yape: S/ ${totalYape.toFixed(2)}</p>
-        <p>Tarjeta: S/ ${totalTarj.toFixed(2)}</p>
-        <p><strong>Total:</strong> S/ ${totalGeneral.toFixed(2)}</p>
+        <h4>Reporte del día (${r.fecha})</h4>
+        <p>Efectivo: S/ ${r.total_efectivo.toFixed(2)}</p>
+        <p>Yape: S/ ${r.total_yape.toFixed(2)}</p>
+        <p>Tarjeta: S/ ${r.total_tarjeta.toFixed(2)}</p>
+        <p><strong>Total:</strong> S/ ${r.total_general.toFixed(2)}</p>
     `;
 }
 
 
 
+
 async function cargarReporteSemanal() {
-    const hoy = new Date();
+    const cont = document.getElementById("reporteSemanal");
 
-    // Calcular lunes de la semana actual en hora local
-    const diaSemana = hoy.getDay(); // 0=domingo,1=lunes,...
-    const offset = (diaSemana === 0) ? -6 : (1 - diaSemana); // mover hasta lunes
-    const inicio = new Date(hoy);
-    inicio.setDate(hoy.getDate() + offset);
-
-    const resp = await fetch("/api/admin/pagos/pagados");
+    const resp = await fetch("/api/admin/reportes/semanal");
     const data = await resp.json();
 
-    const cont = document.getElementById("reporteSemanal");
-    const dias = {};
-
-    // Inicializar los 7 días de la semana (local)
-    for (let i = 0; i < 7; i++) {
-        const fecha = new Date(inicio);
-        fecha.setDate(inicio.getDate() + i);
-        const f = formatFechaLocal(fecha);
-        dias[f] = { efectivo: 0, yape: 0, tarjeta: 0, total: 0 };
+    if (!data.ok) {
+        cont.innerHTML = "Error cargando reporte semanal.";
+        return;
     }
-
-    (data.pagados || []).forEach(p => {
-        const fecha = formatFechaLocal(new Date(p.fecha_hora));
-
-        if (dias[fecha]) {
-            const monto = Number(p.monto);
-            if (p.metodo === "efectivo") dias[fecha].efectivo += monto;
-            if (p.metodo === "yape")     dias[fecha].yape     += monto;
-            if (p.metodo === "tarjeta")  dias[fecha].tarjeta  += monto;
-            dias[fecha].total += monto;
-        }
-    });
 
     let html = "<h4>Reporte semanal</h4>";
 
-    Object.keys(dias).forEach(d => {
+    data.dias.forEach(d => {
         html += `
-            <p><strong>${d}</strong><br>
-            Efectivo: S/ ${dias[d].efectivo.toFixed(2)} |
-            Yape: S/ ${dias[d].yape.toFixed(2)} |
-            Tarjeta: S/ ${dias[d].tarjeta.toFixed(2)} |
-            <strong>Total: S/ ${dias[d].total.toFixed(2)}</strong>
+            <p><strong>${d.fecha}</strong><br>
+            Efectivo: S/ ${d.total_efectivo.toFixed(2)} |
+            Yape: S/ ${d.total_yape.toFixed(2)} |
+            Tarjeta: S/ ${d.total_tarjeta.toFixed(2)} |
+            <strong>Total: S/ ${d.total_general.toFixed(2)}</strong>
             </p>
             <hr>
         `;
@@ -1124,7 +1125,6 @@ async function cargarReporteSemanal() {
 
     cont.innerHTML = html;
 }
-
 
 
 
@@ -1174,26 +1174,6 @@ async function imprimirReporteDelDia() {
     `);
 }
 
-async function cargarCierresAnteriores() {
-    const resp = await fetch("/api/cierres/lista");
-    const data = await resp.json();
-
-    const cont = document.getElementById("reporteDiario");
-    cont.innerHTML += "<h3>Cierres anteriores:</h3>";
-
-    data.cierres.forEach(c => {
-        cont.innerHTML += `
-            <p>
-                <strong>${c.fecha}</strong> — Total: S/ ${c.total_general.toFixed(2)}
-                <button onclick="imprimirCierre(${c.id})">🖨 Imprimir</button>
-            </p>
-        `;
-    });
-}
-
-function imprimirCierre(id) {
-    window.open(`/api/cierres/print/${id}`, "_blank");
-}
 
 
 async function cargarDashboard() {
