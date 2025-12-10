@@ -155,7 +155,7 @@ else {
             if (tab === "reportes") {
             cargarReportes();
             cargarCierresAnteriores(); // ← NUEVO
-            
+
             } else if (tab === "dashboard") {
                 vistaDashboard.classList.remove("hidden");
                 cargarDashboard();
@@ -706,39 +706,44 @@ function mostrarDetallePago(p) {
     if (p.estado === "pagado") {
 
         detallePago.innerHTML = `
-            <div class="ticket">
-                <h2>KUNNSKAP</h2>
-                <small>BOLETA ELECTRÓNICA</small>
+    <div class="ticket">
+        <h2>KUNNSKAP</h2>
+        <small>BOLETA ELECTRÓNICA</small>
 
-                <div class="line"></div>
+        <div class="line"></div>
 
-                <div class="item"><span>Pedido:</span><span>#${p.pedido_id}</span></div>
-                <div class="item"><span>Método:</span><span>${p.metodo.toUpperCase()}</span></div>
+        <div class="item"><span>Pedido:</span><span>#${idReal}</span></div>
+        <div class="item"><span>Método:</span><span>${metodo.toUpperCase()}</span></div>
 
-                <div class="line"></div>
+        <div class="line"></div>
 
-                <div class="item"><span>Total:</span><span>S/ ${Number(p.monto).toFixed(2)}</span></div>
+        <div class="item"><span>Total:</span><span>S/ ${total.toFixed(2)}</span></div>
 
-                ${p.recargo > 0 ? `
-                    <div class="item">
-                        <span>Recargo 3%:</span><span>S/ ${Number(p.recargo).toFixed(2)}</span>
-                    </div>
-                ` : ""}
+        ${
+            recargo > 0
+            ? `<div class="item"><span>Recargo (3%):</span><span>S/ ${recargo.toFixed(2)}</span></div>`
+            : ""
+        }
 
-                <div class="ticket-total">
-                    <span>PAGADO</span>
-                    <span>S/ ${Number(p.monto).toFixed(2)}</span>
-                </div>
+        ${
+            vuelto > 0
+            ? `<div class="item"><span>Vuelto:</span><span>S/ ${vuelto.toFixed(2)}</span></div>`
+            : ""
+        }
 
-                <button class="ticket-btn" onclick="window.open('/api/admin/boleta/${p.pedido_id}', '_blank')">
-                    🧾 Descargar Boleta
-                </button>
+        <div class="ticket-total">
+            <span>PAGADO</span>
+            <span>S/ ${(total + recargo).toFixed(2)}</span>
+        </div>
 
-                <button class="ticket-btn" onclick="window.print()">
-                    🖨️ Imprimir
-                </button>
-            </div>
-        `;
+        <button class="ticket-btn" onclick="window.print()">🖨️ Imprimir</button>
+
+        <button class="ticket-btn" onclick="window.open('/api/admin/boleta/${data.pago_id}', '_blank')">
+            🧾 Descargar Boleta
+        </button>
+    </div>
+`;
+
 
         return; // ⛔ IMPORTANTE: NO CONTINUAR CON EL FORMULARIO
     }
@@ -986,7 +991,7 @@ async function procesarPago() {
 
             <button class="ticket-btn" onclick="window.print()">🖨️ Imprimir</button>
 
-            <button class="ticket-btn" onclick="window.open('/api/admin/boleta/${idReal}', '_blank')">
+            <button class="ticket-btn" onclick="window.open('/api/admin/boleta/' + data.pago_id, "_blank")">
                 🧾 Descargar Boleta
             </button>
         </div>
@@ -996,8 +1001,6 @@ async function procesarPago() {
     await cargarPendientesPago();
     await cargarPagados();
 }
-
-
 
 
 function generarFactura(id) {

@@ -1239,3 +1239,19 @@ body {
     border: none;
     font-weight: bold;
 }
+@media print {
+    body * {
+        visibility: hidden !important;
+    }
+
+    .ticket, .ticket * {
+        visibility: visible !important;
+    }
+
+    .ticket {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 80mm;   /* tamaño ticket térmico */
+    }
+}

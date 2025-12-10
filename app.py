@@ -28,7 +28,6 @@ def admin_panel():
 
 @app.route("/api/admin/boleta/<int:pedido_id>")
 def generar_boleta_pdf(pedido_id):
-
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
@@ -53,23 +52,13 @@ def generar_boleta_pdf(pedido_id):
     """, (pedido_id,))
     items = cursor.fetchall()
 
-    # Crear ticket térmico (80mm)
-    pdf = FPDF("P", "mm", (80, 200))  
+    from fpdf import FPDF
+    pdf = FPDF("P", "mm", (80, 200))
     pdf.add_page()
     pdf.set_font("Arial", size=10)
 
-    # ENCABEZADO
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 5, "KUNNSKAP CAFETERIA", ln=True, align="C")
-
-    pdf.set_font("Arial", size=9)
-    pdf.cell(0, 5, "RUC: 20699999999", ln=True, align="C")
-    pdf.cell(0, 5, "Oxapampa - Peru", ln=True, align="C")
-    pdf.ln(3)
-
-    pdf.set_font("Arial", "B", 11)
-    pdf.cell(0, 5, f"BOLETA - PEDIDO #{pedido_id}", ln=True, align="C")
-    pdf.ln(3)
 
     pdf.set_font("Arial", size=9)
     pdf.cell(0, 5, f"Cliente: {pago['cliente_nombre']}", ln=True)
@@ -77,38 +66,24 @@ def generar_boleta_pdf(pedido_id):
     pdf.cell(0, 5, f"Fecha: {pago['fecha_hora']}", ln=True)
     pdf.ln(3)
 
-    # ITEMS
     pdf.set_font("Arial", "B", 10)
     pdf.cell(0, 5, "Detalle de consumo:", ln=True)
 
     pdf.set_font("Arial", size=9)
     for item in items:
         pdf.cell(0, 5, f"{item['cantidad']}x {item['nombre']}", ln=True)
-        pdf.cell(0, 5, f"     Subtotal: S/ {item['subtotal']:.2f}", ln=True)
+        pdf.cell(0, 5, f"  Subtotal: S/ {item['subtotal']:.2f}", ln=True)
 
     pdf.ln(3)
-
-    # RESUMEN
     pdf.set_font("Arial", "B", 10)
     pdf.cell(0, 5, "Resumen:", ln=True)
-
     pdf.set_font("Arial", size=9)
-    pdf.cell(0, 5, f"Método: {pago['metodo'].upper()}", ln=True)
+
+    pdf.cell(0, 5, f"Método: {pago['metodo']}", ln=True)
     pdf.cell(0, 5, f"Total consumido: S/ {pago['total']:.2f}", ln=True)
-
-    if pago["recargo"] > 0:
-        pdf.cell(0, 5, f"Recargo tarjeta: S/ {pago['recargo']:.2f}", ln=True)
-
     pdf.cell(0, 5, f"Total pagado: S/ {pago['monto']:.2f}", ln=True)
 
-    if pago["vuelto"] > 0:
-        pdf.cell(0, 5, f"Vuelto: S/ {pago['vuelto']:.2f}", ln=True)
-
-    if pago["comprobante_url"]:
-        pdf.cell(0, 5, f"Comprobante: {pago['comprobante_url']}", ln=True)
-
     pdf.ln(4)
-    pdf.set_font("Arial", "I", 9)
     pdf.cell(0, 5, "Gracias por su compra!", ln=True, align="C")
 
     cursor.close()
@@ -119,6 +94,7 @@ def generar_boleta_pdf(pedido_id):
         mimetype="application/pdf",
         download_name=f"boleta_{pedido_id}.pdf"
     )
+
 # --------- API: LOGIN / LOGOUT --------- #
 
 @app.route("/api/login", methods=["POST"])
@@ -1030,85 +1006,6 @@ def api_reporte_semanal():
     })
 
 
-@app.route("/api/admin/boleta/<int:pedido_id>", methods=["GET"])
-def api_boleta(pedido_id):
-    if "usuario" not in session or session.get("rol") != "admin":
-        return jsonify({"ok": False}), 401
-
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    # Obtener datos del pedido
-    cursor.execute("SELECT * FROM pedidos WHERE id = %s", (pedido_id,))
-    pedido = cursor.fetchone()
-
-    # Obtener items
-    cursor.execute("""
-        SELECT prod.nombre, pi.cantidad, pi.subtotal 
-        FROM pedido_items pi
-        JOIN productos prod ON prod.id = pi.producto_id
-        WHERE pi.pedido_id = %s
-    """, (pedido_id,))
-    items = cursor.fetchall()
-
-    cursor.close()
-    conn.close()
-
-    # Crear PDF en memoria
-    buffer = io.BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=letter)
-    pdf.setTitle(f"Boleta_{pedido_id}")
-
-    # Header
-    pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawString(200, 750, "CAFETERÍA KUNNSKAP")
-    pdf.setFont("Helvetica", 10)
-    pdf.drawString(230, 735, "RUC: 12345678901")
-
-    # Datos de boleta
-    pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(50, 700, f"BOLETA DE VENTA - #{pedido_id}")
-
-    pdf.setFont("Helvetica", 10)
-    pdf.drawString(50, 680, f"Cliente: {pedido['cliente_nombre']}")
-    pdf.drawString(50, 665, f"Mesa: {pedido['mesa']}")
-    pdf.drawString(50, 650, f"Fecha: {pedido['fecha_hora']}")
-
-    # Tabla
-    y = 610
-    pdf.setFont("Helvetica-Bold", 10)
-    pdf.drawString(50, y, "Producto")
-    pdf.drawString(250, y, "Cantidad")
-    pdf.drawString(350, y, "Subtotal")
-
-    pdf.line(45, y-5, 560, y-5)
-
-    pdf.setFont("Helvetica", 10)
-    y -= 25
-
-    total = 0
-    for item in items:
-        pdf.drawString(50, y, item["nombre"])
-        pdf.drawString(260, y, str(item["cantidad"]))
-        pdf.drawString(360, y, f"S/ {item['subtotal']:.2f}")
-        total += item["subtotal"]
-        y -= 20
-
-    # Total final
-    pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(50, y - 20, f"TOTAL: S/ {total:.2f}")
-
-    pdf.showPage()
-    pdf.save()
-
-    buffer.seek(0)
-    
-    return send_file(
-        buffer,
-        as_attachment=True,
-        download_name=f"Boleta_{pedido_id}.pdf",
-        mimetype="application/pdf"
-    )
 @app.route("/api/admin/factura/<int:pedido_id>", methods=["POST"])
 def api_factura(pedido_id):
     if "usuario" not in session or session.get("rol") != "admin":
