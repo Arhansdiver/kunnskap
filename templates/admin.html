@@ -334,24 +334,35 @@
     </div>
 
     <div class="reportes-layout">
+
+        <!-- Reporte Diario -->
         <div class="reporte-card">
             <h3>Reporte Diario</h3>
             <div id="reporteDiario">Sin datos.</div>
         </div>
 
+        <!-- Reporte Semanal -->
         <div class="reporte-card">
             <h3>Reporte Semanal</h3>
+
+            <!-- Botón DETALLADO aquí adentro -->
+            <button class="btn btn-warning" onclick="descargarReporteSemanal()"
+                    style="margin-bottom: 10px;">
+                Descargar reporte detallado (PDF)
+            </button>
+
             <div id="reporteSemanal">Sin datos.</div>
         </div>
+
+        <!-- Historial -->
         <div class="reporte-card">
             <h3>Historial de cierres</h3>
             <div id="listaCierres">Cargando...</div>
         </div>
 
-        </div>
     </div>
-
 </section>
+
 
 </main>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

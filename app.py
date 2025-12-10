@@ -942,6 +942,78 @@ def api_reporte_semanal():
 
     return jsonify({"ok": True, "dias": dias})
 
+@app.route("/api/admin/reportes/semanal/pdf")
+def api_reporte_semanal_pdf():
+
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    # Inicio de semana (lunes)
+    cursor.execute("SELECT DATE_SUB(CURDATE(), INTERVAL (WEEKDAY(CURDATE())) DAY) AS inicio")
+    inicio_semana = cursor.fetchone()["inicio"]
+
+    cursor.execute("""
+        SELECT 
+            DATE(fecha_hora) AS fecha,
+            IFNULL(SUM(CASE WHEN metodo='efectivo' THEN monto END),0) AS efectivo,
+            IFNULL(SUM(CASE WHEN metodo='yape' THEN monto END),0) AS yape,
+            IFNULL(SUM(CASE WHEN metodo='tarjeta' THEN monto END),0) AS tarjeta
+        FROM pagos
+        WHERE fecha_hora >= %s AND estado='pagado'
+        GROUP BY DATE(fecha_hora)
+        ORDER BY fecha
+    """, (inicio_semana,))
+
+    dias = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    # Crear PDF
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(180, 750, "REPORTE SEMANAL")
+
+    y = 720
+    pdf.setFont("Helvetica", 10)
+
+    for d in dias:
+        total = d["efectivo"] + d["yape"] + d["tarjeta"]
+
+        pdf.setFont("Helvetica-Bold", 12)
+        pdf.drawString(50, y, f"{d['fecha']}")
+        y -= 18
+
+        pdf.setFont("Helvetica", 10)
+        pdf.drawString(60, y, f"Efectivo: S/ {d['efectivo']:.2f}")
+        y -= 15
+        pdf.drawString(60, y, f"Yape: S/ {d['yape']:.2f}")
+        y -= 15
+        pdf.drawString(60, y, f"Tarjeta: S/ {d['tarjeta']:.2f}")
+        y -= 15
+
+        pdf.setFont("Helvetica-Bold", 10)
+        pdf.drawString(60, y, f"TOTAL DÍA: S/ {total:.2f}")
+        y -= 25
+
+        pdf.line(50, y, 550, y)
+        y -= 25
+
+        if y < 80:  # Nueva página
+            pdf.showPage()
+            y = 750
+
+    pdf.save()
+    buffer.seek(0)
+
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name="Reporte_Semanal.pdf",
+        mimetype="application/pdf"
+    )
+
 
 @app.route("/api/admin/factura/<int:pedido_id>", methods=["POST"])
 def api_factura(pedido_id):

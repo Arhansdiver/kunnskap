@@ -1236,6 +1236,10 @@ function renderChartTopProductos(top) {
     });
 }
 
+function descargarReporteSemanal() {
+    window.open("/api/admin/reportes/semanal/pdf", "_blank");
+}
+
 function renderChartInventario(ingredientes) {
     const ctx = document.getElementById("chartInventario").getContext("2d");
 
@@ -1589,6 +1593,8 @@ btnNuevoUsuario.addEventListener("click", () => {
 btnCancelarUsuario.addEventListener("click", () => {
     formUsuario.classList.add("hidden");
 });
+
+
 
 // Cargar lista
 async function cargarUsuarios() {
