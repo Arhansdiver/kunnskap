@@ -98,79 +98,6 @@ def generar_boleta_pdf(pedido_id):
     )
 
 
-# --- GUARDAR CIERRE ---
-@app.route("/api/admin/reportes/cierre", methods=["POST"])
-def generar_cierre():
-    hoy = date.today()
-
-    conn = get_db()
-    cur = conn.cursor(dictionary=True)
-
-    # Verificar si ya existe cierre del día
-    cur.execute("SELECT * FROM cierres_caja WHERE fecha = %s", (hoy,))
-    existente = cur.fetchone()
-
-    if existente:
-        return generar_pdf_cierre(existente)
-
-    # Calcular totales del día
-    cur.execute("""
-        SELECT 
-            SUM(CASE WHEN metodo='efectivo' THEN monto ELSE 0 END) AS efectivo,
-            SUM(CASE WHEN metodo='yape' THEN monto ELSE 0 END) AS yape,
-            SUM(CASE WHEN metodo='tarjeta' THEN monto ELSE 0 END) AS tarjeta
-        FROM pagos
-        WHERE DATE(fecha_hora) = %s
-    """, (hoy,))
-
-    tot = cur.fetchone() or {}
-
-    efectivo = tot.get("efectivo", 0) or 0
-    yape     = tot.get("yape", 0) or 0
-    tarjeta  = tot.get("tarjeta", 0) or 0
-    total    = efectivo + yape + tarjeta
-
-    # Guardar en BD
-    cur.execute("""
-        INSERT INTO cierres_caja (fecha, total_efectivo, total_yape, total_tarjeta, total_general)
-        VALUES (%s, %s, %s, %s, %s)
-    """, (hoy, efectivo, yape, tarjeta, total))
-
-    conn.commit()
-
-    # Generar PDF del cierre
-    return generar_pdf_cierre({
-        "fecha": hoy,
-        "total_efectivo": efectivo,
-        "total_yape": yape,
-        "total_tarjeta": tarjeta,
-        "total_general": total
-    })
-
-def generar_pdf_cierre(cierre):
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer)
-
-    c.setFont("Helvetica-Bold", 18)
-    c.drawString(180, 800, "CIERRE DE CAJA")
-
-    c.setFont("Helvetica", 12)
-    c.drawString(50, 760, f"Fecha: {cierre['fecha']}")
-
-    c.drawString(50, 720, f"Efectivo: S/ {cierre['total_efectivo']:.2f}")
-    c.drawString(50, 700, f"Yape: S/ {cierre['total_yape']:.2f}")
-    c.drawString(50, 680, f"Tarjeta: S/ {cierre['total_tarjeta']:.2f}")
-
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, 640, f"TOTAL GENERAL: S/ {cierre['total_general']:.2f}")
-
-    c.showPage()
-    c.save()
-
-    buffer.seek(0)
-    return send_file(buffer, download_name="cierre.pdf", as_attachment=False)
-
-
 
 @app.route("/api/cierres/reporte-dia")
 def api_reporte_del_dia():
@@ -336,33 +263,21 @@ def api_quitar_menu():
 
 @app.route("/api/cierres/lista")
 def api_cierres_lista():
-    conn = get_db()
-    cur = conn.cursor()
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
 
-    cur.execute("""
-        SELECT id, fecha, total_efectivo, total_yape, total_tarjeta, total_general
+    cursor.execute("""
+        SELECT id, fecha, total_general
         FROM cierres_diarios
         ORDER BY fecha DESC
     """)
 
-    rows = cur.fetchall()
+    cierres = cursor.fetchall()
+    cursor.close()
     conn.close()
 
-    cierres = []
-    for r in rows:
-        cierres.append({
-            "id": r[0],
-            "fecha": r[1],
-            "total_efectivo": float(r[2]),
-            "total_yape": float(r[3]),
-            "total_tarjeta": float(r[4]),
-            "total_general": float(r[5])
-        })
+    return jsonify({"ok": True, "cierres": cierres})
 
-    return {
-        "ok": True,
-        "cierres": cierres
-    }
 
 
 @app.route("/api/cierres/print/<int:id>")
@@ -980,103 +895,81 @@ def api_generar_cierre_diario():
 
 
 
-@app.route("/api/admin/reportes/diario", methods=["GET"])
+@app.route("/api/admin/reportes/diario")
 def api_reporte_diario():
-    if "usuario" not in session or session.get("rol") != "admin":
-        return jsonify({"ok": False}), 401
-
-    hoy = datetime.now().date()
-
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    # Toma directamente de PAGOS
     cursor.execute("""
-        SELECT metodo, SUM(monto) AS total
+        SELECT 
+            IFNULL(SUM(CASE WHEN metodo='efectivo' THEN monto END),0) AS total_efectivo,
+            IFNULL(SUM(CASE WHEN metodo='yape' THEN monto END),0) AS total_yape,
+            IFNULL(SUM(CASE WHEN metodo='tarjeta' THEN monto END),0) AS total_tarjeta
         FROM pagos
-        WHERE DATE(fecha_hora) = %s AND estado='pagado'
-        GROUP BY metodo
-    """, (hoy,))
-
-    pagos = cursor.fetchall()
-
-    tot_efec = tot_yape = tot_tarj = 0
-
-    for p in pagos:
-        if p["metodo"] == "efectivo":
-            tot_efec = p["total"]
-        elif p["metodo"] == "yape":
-            tot_yape = p["total"]
-        elif p["metodo"] == "tarjeta":
-            tot_tarj = p["total"]
-
-    total_general = tot_efec + tot_yape + tot_tarj
-
+        WHERE DATE(fecha_hora) = CURDATE()
+        AND estado='pagado'
+    """)
+    
+    row = cursor.fetchone()
     cursor.close()
     conn.close()
+
+    total_general = (
+        row["total_efectivo"] +
+        row["total_yape"] +
+        row["total_tarjeta"]
+    )
 
     return jsonify({
         "ok": True,
         "data": {
-            "fecha": str(hoy),
-            "total_efectivo": tot_efec,
-            "total_yape": tot_yape,
-            "total_tarjeta": tot_tarj,
+            "fecha": str(date.today()),
+            "total_efectivo": row["total_efectivo"],
+            "total_yape": row["total_yape"],
+            "total_tarjeta": row["total_tarjeta"],
             "total_general": total_general
         }
     })
 
 
-@app.route("/api/admin/reportes/semanal", methods=["GET"])
-def api_reporte_semanal():
-    if "usuario" not in session or session.get("rol") != "admin":
-        return jsonify({"ok": False}), 401
 
-    hoy = datetime.now().date()
-    inicio = hoy - timedelta(days=hoy.weekday())  # Lunes
-    fin = inicio + timedelta(days=6)             # Domingo
+@app.route("/api/admin/reportes/semanal")
+def api_reporte_semanal():
 
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    # SE TOMA SOLO DE PAGOS (NO DEPENDE DEL CIERRE)
+    # Inicio de semana (lunes)
+    cursor.execute("SELECT DATE_SUB(CURDATE(), INTERVAL (WEEKDAY(CURDATE())) DAY) AS inicio")
+    inicio_semana = cursor.fetchone()["inicio"]
+
     cursor.execute("""
-        SELECT DATE(fecha_hora) AS fecha, metodo, SUM(monto) AS total
+        SELECT 
+            DATE(fecha_hora) AS fecha,
+            IFNULL(SUM(CASE WHEN metodo='efectivo' THEN monto END),0) AS total_efectivo,
+            IFNULL(SUM(CASE WHEN metodo='yape' THEN monto END),0) AS total_yape,
+            IFNULL(SUM(CASE WHEN metodo='tarjeta' THEN monto END),0) AS total_tarjeta
         FROM pagos
-        WHERE DATE(fecha_hora) BETWEEN %s AND %s
-        AND estado='pagado'
-        GROUP BY DATE(fecha_hora), metodo
-        ORDER BY fecha ASC
-    """, (inicio, fin))
+        WHERE fecha_hora >= %s
+        AND estado = 'pagado'
+        GROUP BY DATE(fecha_hora)
+        ORDER BY fecha
+    """, (inicio_semana,))
 
-    rows = cursor.fetchall()
-
-    dias = {}
-    for r in rows:
-        f = str(r["fecha"])
-        if f not in dias:
-            dias[f] = {"fecha": f, "total_efectivo": 0, "total_yape": 0, "total_tarjeta": 0, "total_general": 0}
-
-        if r["metodo"] == "efectivo":
-            dias[f]["total_efectivo"] = r["total"]
-        elif r["metodo"] == "yape":
-            dias[f]["total_yape"] = r["total"]
-        elif r["metodo"] == "tarjeta":
-            dias[f]["total_tarjeta"] = r["total"]
-
-        dias[f]["total_general"] = (
-            dias[f]["total_efectivo"] +
-            dias[f]["total_yape"] +
-            dias[f]["total_tarjeta"]
-        )
-
+    dias = cursor.fetchall()
     cursor.close()
     conn.close()
 
-    return jsonify({
-        "ok": True,
-        "dias": list(dias.values())
-    })
+    # Calcular total diario
+    for d in dias:
+        d["total_general"] = (
+            d["total_efectivo"] +
+            d["total_yape"] +
+            d["total_tarjeta"]
+        )
+
+    return jsonify({"ok": True, "dias": dias})
+
 
 
 @app.route("/api/admin/factura/<int:pedido_id>", methods=["POST"])
