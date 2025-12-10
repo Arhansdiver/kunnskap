@@ -253,6 +253,100 @@ def api_quitar_menu():
     db.execute("DELETE FROM menu WHERE nombre = %s", (nombre,))
     return jsonify(ok=True)
 
+@app.route("/api/cierres/lista", methods=["GET"])
+def api_cierres_lista():
+    if "usuario" not in session or session.get("rol") != "admin":
+        return jsonify({"ok": False}), 401
+
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT id, fecha, total_general
+        FROM cierres_diarios
+        ORDER BY fecha DESC
+    """)
+
+    cierres = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({"cierres": cierres})
+
+@app.route("/api/cierres/print/<int:cierre_id>", methods=["GET"])
+def api_cierre_print(cierre_id):
+    if "usuario" not in session or session.get("rol") != "admin":
+        return jsonify({"ok": False}), 401
+
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT *
+        FROM cierres_diarios
+        WHERE id = %s
+    """, (cierre_id,))
+    cierre = cursor.fetchone()
+
+    if not cierre:
+        return "Cierre no encontrado", 404
+
+    cursor.close()
+    conn.close()
+
+    # -------- GENERAR PDF -------- #
+    buffer = io.BytesIO()
+    TICKET_WIDTH = 226
+    pdf = canvas.Canvas(buffer, pagesize=(TICKET_WIDTH, 500))
+
+    y = 480
+
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawCentredString(TICKET_WIDTH/2, y, "KUNNSKAP CAFETERIA")
+    y -= 20
+
+    pdf.setFont("Helvetica", 10)
+    pdf.drawCentredString(TICKET_WIDTH/2, y, "Cierre Anterior")
+    y -= 15
+
+    pdf.drawCentredString(TICKET_WIDTH/2, y, f"Fecha: {cierre['fecha']}")
+    y -= 25
+
+    pdf.line(10, y, TICKET_WIDTH-10, y)
+    y -= 20
+
+    pdf.setFont("Helvetica", 9)
+
+    pdf.drawString(10, y, "Efectivo:")
+    pdf.drawRightString(TICKET_WIDTH-10, y, f"S/ {cierre['total_efectivo']:.2f}")
+    y -= 15
+
+    pdf.drawString(10, y, "Yape:")
+    pdf.drawRightString(TICKET_WIDTH-10, y, f"S/ {cierre['total_yape']:.2f}")
+    y -= 15
+
+    pdf.drawString(10, y, "Tarjeta:")
+    pdf.drawRightString(TICKET_WIDTH-10, y, f"S/ {cierre['total_tarjeta']:.2f}")
+    y -= 20
+
+    pdf.line(10, y, TICKET_WIDTH-10, y)
+    y -= 20
+
+    pdf.setFont("Helvetica-Bold", 10)
+    pdf.drawString(10, y, "TOTAL GENERAL:")
+    pdf.drawRightString(TICKET_WIDTH-10, y, f"S/ {cierre['total_general']:.2f}")
+    y -= 20
+
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+
+    return send_file(
+        buffer,
+        download_name=f"Cierre_{cierre['fecha']}.pdf",
+        mimetype="application/pdf"
+    )
 
 @app.route("/api/pedidos", methods=["POST"])
 def api_crear_pedido():
@@ -705,16 +799,17 @@ def api_registrar_pago():
     # --------------------------------------------
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO pagos (
-            pedido_id, metodo, monto, vuelto, recargo, comprobante_url,
-            fecha_hora, estado
-        )
-        VALUES (
-            %s, %s, %s, %s, %s, %s,
-            CONVERT_TZ(NOW(), @@global.time_zone, '-05:00'),
-            'pagado'
-        )
-    """, (pedido_id, metodo, monto_cobrado, vuelto, recargo, comprobante))
+        UPDATE pagos 
+        SET metodo = %s,
+            monto = %s,
+            vuelto = %s,
+            recargo = %s,
+            comprobante_url = %s,
+            fecha_hora = CONVERT_TZ(NOW(), @@global.time_zone, '-05:00'),
+            estado = 'pagado'
+        WHERE pedido_id = %s AND estado = 'pendiente'
+        LIMIT 1
+    """, (metodo, monto_cobrado, vuelto, recargo, comprobante, pedido_id))
 
     cursor.execute("UPDATE pedidos SET pagado = 1 WHERE id = %s", (pedido_id,))
     conn.commit()

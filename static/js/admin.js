@@ -83,6 +83,7 @@ document.addEventListener("DOMContentLoaded", () => {
         tabUsuarios.style.display = "none";
         // Solo queda: pedidos, recetario
     }
+    
 
     if (userRol === "caja") {
         tabDashboard.style.display = "none";
@@ -151,8 +152,11 @@ else {
             vistaUsuarios.classList.add("hidden");
             vistaRecetario.classList.add("hidden");
 
-
-            if (tab === "dashboard") {
+            if (tab === "reportes") {
+            cargarReportes();
+            cargarCierresAnteriores(); // ← NUEVO
+            
+            } else if (tab === "dashboard") {
                 vistaDashboard.classList.remove("hidden");
                 cargarDashboard();
 
@@ -695,6 +699,54 @@ async function cargarPendientesPago() {
 // Pagados
 function mostrarDetallePago(p) {
     pedidoParaPagar = p;
+
+    // ============================================================
+    // 🟢 SI EL PAGO YA ESTÁ PAGADO → MOSTRAR TICKET / BOLETA
+    // ============================================================
+    if (p.estado === "pagado") {
+
+        detallePago.innerHTML = `
+            <div class="ticket">
+                <h2>KUNNSKAP</h2>
+                <small>BOLETA ELECTRÓNICA</small>
+
+                <div class="line"></div>
+
+                <div class="item"><span>Pedido:</span><span>#${p.pedido_id}</span></div>
+                <div class="item"><span>Método:</span><span>${p.metodo.toUpperCase()}</span></div>
+
+                <div class="line"></div>
+
+                <div class="item"><span>Total:</span><span>S/ ${Number(p.monto).toFixed(2)}</span></div>
+
+                ${p.recargo > 0 ? `
+                    <div class="item">
+                        <span>Recargo 3%:</span><span>S/ ${Number(p.recargo).toFixed(2)}</span>
+                    </div>
+                ` : ""}
+
+                <div class="ticket-total">
+                    <span>PAGADO</span>
+                    <span>S/ ${Number(p.monto).toFixed(2)}</span>
+                </div>
+
+                <button class="ticket-btn" onclick="window.open('/api/admin/boleta/${p.pedido_id}', '_blank')">
+                    🧾 Descargar Boleta
+                </button>
+
+                <button class="ticket-btn" onclick="window.print()">
+                    🖨️ Imprimir
+                </button>
+            </div>
+        `;
+
+        return; // ⛔ IMPORTANTE: NO CONTINUAR CON EL FORMULARIO
+    }
+
+    // ============================================================
+    // 🔵 SI NO ESTÁ PAGADO → MOSTRAR FORMULARIO NORMAL
+    // ============================================================
+
     const total = Number(p.total).toFixed(2);
 
     detallePago.innerHTML = `
@@ -718,7 +770,8 @@ function mostrarDetallePago(p) {
         <div class="vuelto-preview hidden" id="previewVuelto">Vuelto: S/ 0.00</div>
 
         <div id="grupoRecargo" class="hidden">
-            <p><strong>Recargo tarjeta (3%):</strong> S/ <span id="txtRecargo">0.00</span></p>
+            <p><strong>Recargo tarjeta (3%):</strong> 
+            S/ <span id="txtRecargo">0.00</span></p>
         </div>
 
         <label>Comprobante (Yape)</label>
@@ -730,8 +783,10 @@ function mostrarDetallePago(p) {
     document.getElementById("pagoMetodo").addEventListener("change", actualizarUI);
     document.getElementById("pagoMonto").addEventListener("input", actualizarEfectivo);
     document.getElementById("btnConfirmarPago").addEventListener("click", procesarPago);
+
     actualizarUI();
 }
+
 
 
 function actualizarUI() {
@@ -1073,20 +1128,69 @@ async function cargarReporteSemanal() {
 // Cierre diario
 document.getElementById("btnCierreDiario").addEventListener("click", async () => {
 
-    const resp = await fetch("/api/admin/reportes/cierre", {
-        method: "POST"
-    });
+    // Si aún no son las 10 pm → reporte del día
+    if (!esHoraDeCierre()) {
+        imprimirReporteDelDia();
+        return;
+    }
 
-    // Como ahora devuelve PDF, no es JSON
+    // Si ya pasó las 10 pm → generar cierre real
+    const resp = await fetch("/api/admin/reportes/cierre", { method: "POST" });
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
 
-    // Abrir el PDF en nueva pestaña (voucher)
     window.open(url, "_blank");
-
     alert("Cierre realizado e impreso.");
+
     cargarReportes();
 });
+
+
+function esHoraDeCierre() {
+    const ahora = new Date();
+    return ahora.getHours() >= 22; // 22 = 10 pm
+}
+
+async function imprimirReporteDelDia() {
+    const resp = await fetch("/api/cierres/reporte-dia");
+    const data = await resp.json();
+
+    if (!data.ok) {
+        alert("No se pudo generar el reporte.");
+        return;
+    }
+
+    const nueva = window.open("", "_blank");
+    nueva.document.write(`
+        <h2>Reporte del Día</h2>
+        <p>Efectivo: S/ ${data.resumen.efectivo || 0}</p>
+        <p>Yape: S/ ${data.resumen.yape || 0}</p>
+        <p>Tarjeta: S/ ${data.resumen.tarjeta || 0}</p>
+        <h3>Total: S/ ${data.total}</h3>
+        <script>window.print()</script>
+    `);
+}
+
+async function cargarCierresAnteriores() {
+    const resp = await fetch("/api/cierres/lista");
+    const data = await resp.json();
+
+    const cont = document.getElementById("reporteDiario");
+    cont.innerHTML += "<h3>Cierres anteriores:</h3>";
+
+    data.cierres.forEach(c => {
+        cont.innerHTML += `
+            <p>
+                <strong>${c.fecha}</strong> — Total: S/ ${c.total_general.toFixed(2)}
+                <button onclick="imprimirCierre(${c.id})">🖨 Imprimir</button>
+            </p>
+        `;
+    });
+}
+
+function imprimirCierre(id) {
+    window.open(`/api/cierres/print/${id}`, "_blank");
+}
 
 
 async function cargarDashboard() {
