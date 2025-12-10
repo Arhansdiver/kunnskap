@@ -98,37 +98,6 @@ def generar_boleta_pdf(pedido_id):
     )
 
 
-
-@app.route("/api/cierres/reporte-dia")
-def api_reporte_del_dia():
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT 
-            IFNULL(SUM(CASE WHEN metodo='efectivo' THEN monto END),0),
-            IFNULL(SUM(CASE WHEN metodo='yape' THEN monto END),0),
-            IFNULL(SUM(CASE WHEN metodo='tarjeta' THEN monto END),0)
-        FROM pagos
-        WHERE DATE(fecha) = DATE('now')
-    """)
-
-    ef, yp, tj = cur.fetchone()
-    total = float(ef) + float(yp) + float(tj)
-
-    conn.close()
-
-    return {
-        "ok": True,
-        "resumen": {
-            "efectivo": float(ef),
-            "yape": float(yp),
-            "tarjeta": float(tj)
-        },
-        "total": total
-    }
-
-
 # --------- API: LOGIN / LOGOUT --------- #
 
 @app.route("/api/login", methods=["POST"])
@@ -791,7 +760,7 @@ def api_generar_cierre_diario():
     cursor = conn.cursor(dictionary=True)
 
     # Evitar doble cierre
-    cursor.execute("SELECT * FROM cierres_diarios WHERE fecha=%s", (hoy,))
+    cursor.execute("SELECT * FROM pagos WHERE fecha=%s", (hoy,))
     if cursor.fetchone():
         return jsonify({"ok": False, "msg": "El cierre de hoy ya fue realizado"})
 
@@ -902,12 +871,12 @@ def api_reporte_diario():
 
     cursor.execute("""
         SELECT 
-            IFNULL(SUM(CASE WHEN metodo='efectivo' THEN monto END),0) AS total_efectivo,
-            IFNULL(SUM(CASE WHEN metodo='yape' THEN monto END),0) AS total_yape,
-            IFNULL(SUM(CASE WHEN metodo='tarjeta' THEN monto END),0) AS total_tarjeta
+            SUM(CASE WHEN metodo='efectivo' THEN monto ELSE 0 END) AS total_efectivo,
+            SUM(CASE WHEN metodo='yape' THEN monto ELSE 0 END) AS total_yape,
+            SUM(CASE WHEN metodo='tarjeta' THEN monto ELSE 0 END) AS total_tarjeta
         FROM pagos
         WHERE DATE(fecha_hora) = CURDATE()
-        AND estado='pagado'
+        AND estado = 'pagado'
     """)
     
     row = cursor.fetchone()
@@ -915,21 +884,22 @@ def api_reporte_diario():
     conn.close()
 
     total_general = (
-        row["total_efectivo"] +
-        row["total_yape"] +
-        row["total_tarjeta"]
+        float(row["total_efectivo"] or 0) +
+        float(row["total_yape"] or 0) +
+        float(row["total_tarjeta"] or 0)
     )
 
     return jsonify({
         "ok": True,
         "data": {
             "fecha": str(date.today()),
-            "total_efectivo": row["total_efectivo"],
-            "total_yape": row["total_yape"],
-            "total_tarjeta": row["total_tarjeta"],
+            "total_efectivo": float(row["total_efectivo"] or 0),
+            "total_yape": float(row["total_yape"] or 0),
+            "total_tarjeta": float(row["total_tarjeta"] or 0),
             "total_general": total_general
         }
     })
+
 
 
 
@@ -939,18 +909,18 @@ def api_reporte_semanal():
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    # Inicio de semana (lunes)
-    cursor.execute("SELECT DATE_SUB(CURDATE(), INTERVAL (WEEKDAY(CURDATE())) DAY) AS inicio")
+    # lunes de esta semana
+    cursor.execute("SELECT DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) AS inicio")
     inicio_semana = cursor.fetchone()["inicio"]
 
     cursor.execute("""
         SELECT 
             DATE(fecha_hora) AS fecha,
-            IFNULL(SUM(CASE WHEN metodo='efectivo' THEN monto END),0) AS total_efectivo,
-            IFNULL(SUM(CASE WHEN metodo='yape' THEN monto END),0) AS total_yape,
-            IFNULL(SUM(CASE WHEN metodo='tarjeta' THEN monto END),0) AS total_tarjeta
+            SUM(CASE WHEN metodo='efectivo' THEN monto ELSE 0 END) AS total_efectivo,
+            SUM(CASE WHEN metodo='yape' THEN monto ELSE 0 END) AS total_yape,
+            SUM(CASE WHEN metodo='tarjeta' THEN monto ELSE 0 END) AS total_tarjeta
         FROM pagos
-        WHERE fecha_hora >= %s
+        WHERE DATE(fecha_hora) BETWEEN %s AND CURDATE()
         AND estado = 'pagado'
         GROUP BY DATE(fecha_hora)
         ORDER BY fecha
@@ -960,8 +930,10 @@ def api_reporte_semanal():
     cursor.close()
     conn.close()
 
-    # Calcular total diario
     for d in dias:
+        d["total_efectivo"] = float(d["total_efectivo"] or 0)
+        d["total_yape"] = float(d["total_yape"] or 0)
+        d["total_tarjeta"] = float(d["total_tarjeta"] or 0)
         d["total_general"] = (
             d["total_efectivo"] +
             d["total_yape"] +
@@ -969,7 +941,6 @@ def api_reporte_semanal():
         )
 
     return jsonify({"ok": True, "dias": dias})
-
 
 
 @app.route("/api/admin/factura/<int:pedido_id>", methods=["POST"])
