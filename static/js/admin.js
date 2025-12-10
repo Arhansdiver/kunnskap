@@ -800,7 +800,7 @@ async function procesarPago() {
     const inpMonto = document.getElementById("pagoMonto");
     const comprobante = document.getElementById("pagoComprobante").value.trim();
 
-    // reset visual
+    // Reset visual
     alerta.classList.add("hidden");
     alerta.textContent = "";
     inpMonto.classList.remove("pago-input-error");
@@ -815,9 +815,7 @@ async function procesarPago() {
     let vuelto = 0;
     let recargo = 0;
 
-    // ======================
-    // 🔵 EFECTIVO
-    // ======================
+    // EFECTIVO
     if (metodo === "efectivo") {
         const recibido = Number(inpMonto.value || 0);
 
@@ -834,15 +832,11 @@ async function procesarPago() {
         }
 
         vuelto = recibido - total;
-        montoFinal = total;  // SE REGISTRA LO QUE SE COBRA, NO LO RECIBIDO
+        montoFinal = total;
     }
 
-    // ======================
-    // 🟣 YAPE
-    // ======================
+    // YAPE
     if (metodo === "yape") {
-
-        // No debe ingresar monto → lo deshabilitamos
         inpMonto.value = "";
         inpMonto.disabled = true;
 
@@ -851,35 +845,28 @@ async function procesarPago() {
             return;
         }
 
-        // Debe pagar EXACTO
         montoFinal = total;
     } else {
         inpMonto.disabled = false;
     }
 
-    // ======================
-    // 🔴 TARJETA
-    // ======================
+    // TARJETA
     if (metodo === "tarjeta") {
-
-        // No se ingresa monto manual
         inpMonto.value = "";
         inpMonto.disabled = true;
 
         if (total >= 20) {
-            recargo = total * 0.03;
+            recargo = Number((total * 0.03).toFixed(2));
         }
 
         montoFinal = total + recargo;
     }
 
-    // ================================
-    // 🟢 ENVIAR AL SERVIDOR
-    // ================================
+    // ENVIAR A BD
     const body = {
         pedido_id: pedidoParaPagar.pedido_id || pedidoParaPagar.id,
         metodo,
-        monto: montoFinal,   // monto REAL a cobrar
+        monto: montoFinal,
         vuelto,
         recargo,
         comprobante_url: comprobante || null
@@ -898,22 +885,61 @@ async function procesarPago() {
         return;
     }
 
-    // ===============================
-    // 💥 CORRECCIÓN DE DUPLICADOS
-    // ===============================
-    pedidoParaPagar = null;
+    // ======================================
+    // ⭐ BLOQUE FINAL — MOSTRAR TICKET
+    // ======================================
+
+    const idReal = pedidoParaPagar.pedido_id || pedidoParaPagar.id;
 
     alerta.className = "pago-alert pago-alert-ok";
     alerta.textContent = "Pago registrado correctamente.";
     alerta.classList.remove("hidden");
 
-    // Cargar nuevamente las listas para que desaparezca de 'por cobrar'
+    // Evitar duplicado
+    pedidoParaPagar = null;
+
+    detallePago.innerHTML = `
+        <div class="ticket">
+            <h2>KUNNSKAP</h2>
+            <small>BOLETA ELECTRÓNICA</small>
+
+            <div class="line"></div>
+
+            <div class="item"><span>Pedido:</span><span>#${idReal}</span></div>
+            <div class="item"><span>Método:</span><span>${metodo.toUpperCase()}</span></div>
+
+            <div class="line"></div>
+
+            <div class="item"><span>Total:</span><span>S/ ${total.toFixed(2)}</span></div>
+
+            ${
+                recargo > 0
+                ? `<div class="item"><span>Recargo (3%):</span><span>S/ ${recargo.toFixed(2)}</span></div>`
+                : ""
+            }
+
+            ${
+                vuelto > 0
+                ? `<div class="item"><span>Vuelto:</span><span>S/ ${vuelto.toFixed(2)}</span></div>`
+                : ""
+            }
+
+            <div class="ticket-total">
+                <span>PAGADO</span>
+                <span>S/ ${(total + recargo).toFixed(2)}</span>
+            </div>
+
+            <button class="ticket-btn" onclick="window.print()">🖨️ Imprimir</button>
+
+            <button class="ticket-btn" onclick="window.open('/api/admin/boleta/${idReal}', '_blank')">
+                🧾 Descargar Boleta
+            </button>
+        </div>
+    `;
+
+    // Recarga listas sin duplicados
     await cargarPendientesPago();
     await cargarPagados();
-
-    setTimeout(() => {
-        detallePago.innerHTML = "Selecciona un pedido.";
-    }, 1000);
 }
 
 

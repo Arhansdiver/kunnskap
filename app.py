@@ -6,6 +6,8 @@ from flask import send_file
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 import io
+from fpdf import FPDF
+from datetime import datetime
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from flask import make_response
@@ -26,7 +28,99 @@ def admin_panel():
         return redirect("/")
     return render_template("admin.html", rol=session["rol"])
 
+@app.route("/api/admin/boleta/<int:pedido_id>")
+def generar_boleta_pdf(pedido_id):
 
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    # Datos del pago
+    cursor.execute("""
+        SELECT pagos.*, pedidos.cliente_nombre, pedidos.mesa, pedidos.total 
+        FROM pagos 
+        JOIN pedidos ON pedidos.id = pagos.pedido_id 
+        WHERE pagos.pedido_id = %s
+        ORDER BY pagos.id DESC LIMIT 1
+    """, (pedido_id,))
+    pago = cursor.fetchone()
+
+    if not pago:
+        return "Pago no encontrado", 404
+
+    # Items del pedido
+    cursor.execute("""
+        SELECT nombre, cantidad, subtotal 
+        FROM pedido_items 
+        WHERE pedido_id = %s
+    """, (pedido_id,))
+    items = cursor.fetchall()
+
+    # Crear ticket térmico (80mm)
+    pdf = FPDF("P", "mm", (80, 200))  
+    pdf.add_page()
+    pdf.set_font("Arial", size=10)
+
+    # ENCABEZADO
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 5, "KUNNSKAP CAFETERIA", ln=True, align="C")
+
+    pdf.set_font("Arial", size=9)
+    pdf.cell(0, 5, "RUC: 20699999999", ln=True, align="C")
+    pdf.cell(0, 5, "Oxapampa - Peru", ln=True, align="C")
+    pdf.ln(3)
+
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 5, f"BOLETA - PEDIDO #{pedido_id}", ln=True, align="C")
+    pdf.ln(3)
+
+    pdf.set_font("Arial", size=9)
+    pdf.cell(0, 5, f"Cliente: {pago['cliente_nombre']}", ln=True)
+    pdf.cell(0, 5, f"Mesa: {pago['mesa']}", ln=True)
+    pdf.cell(0, 5, f"Fecha: {pago['fecha_hora']}", ln=True)
+    pdf.ln(3)
+
+    # ITEMS
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 5, "Detalle de consumo:", ln=True)
+
+    pdf.set_font("Arial", size=9)
+    for item in items:
+        pdf.cell(0, 5, f"{item['cantidad']}x {item['nombre']}", ln=True)
+        pdf.cell(0, 5, f"     Subtotal: S/ {item['subtotal']:.2f}", ln=True)
+
+    pdf.ln(3)
+
+    # RESUMEN
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 5, "Resumen:", ln=True)
+
+    pdf.set_font("Arial", size=9)
+    pdf.cell(0, 5, f"Método: {pago['metodo'].upper()}", ln=True)
+    pdf.cell(0, 5, f"Total consumido: S/ {pago['total']:.2f}", ln=True)
+
+    if pago["recargo"] > 0:
+        pdf.cell(0, 5, f"Recargo tarjeta: S/ {pago['recargo']:.2f}", ln=True)
+
+    pdf.cell(0, 5, f"Total pagado: S/ {pago['monto']:.2f}", ln=True)
+
+    if pago["vuelto"] > 0:
+        pdf.cell(0, 5, f"Vuelto: S/ {pago['vuelto']:.2f}", ln=True)
+
+    if pago["comprobante_url"]:
+        pdf.cell(0, 5, f"Comprobante: {pago['comprobante_url']}", ln=True)
+
+    pdf.ln(4)
+    pdf.set_font("Arial", "I", 9)
+    pdf.cell(0, 5, "Gracias por su compra!", ln=True, align="C")
+
+    cursor.close()
+    conn.close()
+
+    return send_file(
+        pdf.output(dest="S").encode("latin1"),
+        mimetype="application/pdf",
+        download_name=f"boleta_{pedido_id}.pdf"
+    )
 # --------- API: LOGIN / LOGOUT --------- #
 
 @app.route("/api/login", methods=["POST"])
@@ -495,13 +589,12 @@ def api_pagos_pendientes():
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
+    # SOLO traer pedidos que NO han sido pagados
     cursor.execute("""
-        SELECT pagos.id, pagos.pedido_id, pagos.metodo,
-               pedidos.cliente_nombre, pedidos.mesa, pedidos.total
-        FROM pagos
-        JOIN pedidos ON pedidos.id = pagos.pedido_id
-        WHERE pagos.estado = 'pendiente'
-        ORDER BY pagos.id DESC
+        SELECT id AS pedido_id, cliente_nombre, mesa, total
+        FROM pedidos
+        WHERE pagado = 0
+        ORDER BY id DESC
     """)
 
     pendientes = cursor.fetchall()
@@ -520,10 +613,11 @@ def api_pagos_pagados():
     cursor = conn.cursor(dictionary=True)
 
     cursor.execute("""
-        SELECT pagos.*, pedidos.cliente_nombre
+        SELECT pagos.*, pedidos.cliente_nombre, pedidos.mesa
         FROM pagos
         JOIN pedidos ON pedidos.id = pagos.pedido_id
         WHERE pagos.estado = 'pagado'
+        ORDER BY pagos.fecha_hora DESC
     """)
 
     pagados = cursor.fetchall()
@@ -532,7 +626,6 @@ def api_pagos_pagados():
     conn.close()
 
     return jsonify({"pagados": pagados})
-
 
 @app.route("/api/admin/pagos/registrar", methods=["POST"])
 def api_registrar_pago():

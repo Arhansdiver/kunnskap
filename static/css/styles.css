@@ -1141,3 +1141,70 @@ body {
         margin-top: 6px;
     }
 }
+/* ============================================
+   TICKET TÉRMICO – ESTILO TIPO BOLETA
+   ============================================ */
+
+.ticket {
+    width: 270px;
+    margin: 0 auto;
+    padding: 12px;
+    background: #ffffff;
+    color: #111;
+    font-family: "Courier New", monospace;
+    border-radius: 6px;
+    border: 1px dashed #555;
+}
+
+.ticket h2 {
+    font-size: 1.1rem;
+    text-align: center;
+    margin-bottom: 6px;
+}
+
+.ticket small {
+    display: block;
+    text-align: center;
+    margin-bottom: 10px;
+    color: #444;
+}
+
+.ticket .line {
+    border-bottom: 1px dashed #999;
+    margin: 6px 0;
+}
+
+.ticket .item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+}
+
+.ticket-total {
+    font-weight: bold;
+    margin-top: 10px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.95rem;
+}
+
+.ticket-btn {
+    margin-top: 12px;
+    width: 100%;
+    background: #111827;
+    color: white;
+    padding: 8px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+}
+
+.ticket-btn:hover {
+    background: #1f2937;
+}
+
+@media (max-width: 500px) {
+    .ticket {
+        transform: scale(0.95);
+    }
+}
