@@ -171,28 +171,70 @@ def generar_pdf_cierre(cierre):
     return send_file(buffer, download_name="cierre.pdf", as_attachment=False)
 
 
-@app.route("/api/cierres/lista")
-def lista_cierres():
+@app.route("/api/admin/reportes/cierre", methods=["POST"])
+def api_generar_cierre_diario():
     conn = get_db()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor()
+
+    # Monto total del día por método
     cur.execute("""
-        SELECT id, fecha, total_general 
-        FROM cierres_caja 
-        ORDER BY fecha DESC
+        SELECT 
+            IFNULL(SUM(CASE WHEN metodo='efectivo' THEN monto END),0),
+            IFNULL(SUM(CASE WHEN metodo='yape' THEN monto END),0),
+            IFNULL(SUM(CASE WHEN metodo='tarjeta' THEN monto END),0)
+        FROM pagos
+        WHERE DATE(fecha) = DATE('now')
     """)
-    return {"ok": True, "cierres": cur.fetchall()}
 
-@app.route("/api/cierres/print/<int:cid>")
-def print_cierre(cid):
+    ef, yp, tj = cur.fetchone()
+
+    total = float(ef) + float(yp) + float(tj)
+
+    # registrar cierre
+    cur.execute("""
+        INSERT INTO cierres_diarios (fecha, total_efectivo, total_yape, total_tarjeta, total_general)
+        VALUES (DATE('now'), ?, ?, ?, ?)
+    """, (ef, yp, tj, total))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "ok": True,
+        "msg": "Cierre registrado correctamente.",
+        "total": total
+    }
+
+
+@app.route("/api/cierres/reporte-dia")
+def api_reporte_del_dia():
     conn = get_db()
-    cur = conn.cursor(dictionary=True)
-    cur.execute("SELECT * FROM cierres_caja WHERE id = %s", (cid,))
-    cierre = cur.fetchone()
+    cur = conn.cursor()
 
-    if not cierre:
-        return {"ok": False, "msg": "Cierre no encontrado"}, 404
+    cur.execute("""
+        SELECT 
+            IFNULL(SUM(CASE WHEN metodo='efectivo' THEN monto END),0),
+            IFNULL(SUM(CASE WHEN metodo='yape' THEN monto END),0),
+            IFNULL(SUM(CASE WHEN metodo='tarjeta' THEN monto END),0)
+        FROM pagos
+        WHERE DATE(fecha) = DATE('now')
+    """)
 
-    return generar_pdf_cierre(cierre)
+    ef, yp, tj = cur.fetchone()
+    total = float(ef) + float(yp) + float(tj)
+
+    conn.close()
+
+    return {
+        "ok": True,
+        "resumen": {
+            "efectivo": float(ef),
+            "yape": float(yp),
+            "tarjeta": float(tj)
+        },
+        "total": total
+    }
+
 
 # --------- API: LOGIN / LOGOUT --------- #
 
@@ -326,100 +368,66 @@ def api_quitar_menu():
     db.execute("DELETE FROM menu WHERE nombre = %s", (nombre,))
     return jsonify(ok=True)
 
-@app.route("/api/cierres/lista", methods=["GET"])
+@app.route("/api/cierres/lista")
 def api_cierres_lista():
-    if "usuario" not in session or session.get("rol") != "admin":
-        return jsonify({"ok": False}), 401
+    conn = get_db()
+    cur = conn.cursor()
 
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    cursor.execute("""
-        SELECT id, fecha, total_general
+    cur.execute("""
+        SELECT id, fecha, total_efectivo, total_yape, total_tarjeta, total_general
         FROM cierres_diarios
         ORDER BY fecha DESC
     """)
 
-    cierres = cursor.fetchall()
-
-    cursor.close()
+    rows = cur.fetchall()
     conn.close()
 
-    return jsonify({"cierres": cierres})
+    cierres = []
+    for r in rows:
+        cierres.append({
+            "id": r[0],
+            "fecha": r[1],
+            "total_efectivo": float(r[2]),
+            "total_yape": float(r[3]),
+            "total_tarjeta": float(r[4]),
+            "total_general": float(r[5])
+        })
 
-@app.route("/api/cierres/print/<int:cierre_id>", methods=["GET"])
-def api_cierre_print(cierre_id):
-    if "usuario" not in session or session.get("rol") != "admin":
-        return jsonify({"ok": False}), 401
+    return {
+        "ok": True,
+        "cierres": cierres
+    }
 
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
 
-    cursor.execute("""
-        SELECT *
-        FROM cierres_diarios
-        WHERE id = %s
-    """, (cierre_id,))
-    cierre = cursor.fetchone()
+@app.route("/api/cierres/print/<int:id>")
+def api_cierre_print(id):
+    conn = get_db()
+    cur = conn.cursor()
 
-    if not cierre:
-        return "Cierre no encontrado", 404
+    cur.execute("""
+        SELECT fecha, total_efectivo, total_yape, total_tarjeta, total_general
+        FROM cierres_diarios WHERE id = ?
+    """, (id,))
 
-    cursor.close()
+    r = cur.fetchone()
     conn.close()
 
-    # -------- GENERAR PDF -------- #
-    buffer = io.BytesIO()
-    TICKET_WIDTH = 226
-    pdf = canvas.Canvas(buffer, pagesize=(TICKET_WIDTH, 500))
+    if not r:
+        return "No encontrado", 404
 
-    y = 480
+    fecha, ef, yp, tj, total = r
 
-    pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawCentredString(TICKET_WIDTH/2, y, "KUNNSKAP CAFETERIA")
-    y -= 20
+    html = f"""
+        <h2>CIERRE DE CAJA – {fecha}</h2>
+        <p>Efectivo: S/ {ef:.2f}</p>
+        <p>Yape: S/ {yp:.2f}</p>
+        <p>Tarjeta: S/ {tj:.2f}</p>
+        <h3>Total: S/ {total:.2f}</h3>
+        <script>window.print()</script>
+    """
 
-    pdf.setFont("Helvetica", 10)
-    pdf.drawCentredString(TICKET_WIDTH/2, y, "Cierre Anterior")
-    y -= 15
+    return html
 
-    pdf.drawCentredString(TICKET_WIDTH/2, y, f"Fecha: {cierre['fecha']}")
-    y -= 25
-
-    pdf.line(10, y, TICKET_WIDTH-10, y)
-    y -= 20
-
-    pdf.setFont("Helvetica", 9)
-
-    pdf.drawString(10, y, "Efectivo:")
-    pdf.drawRightString(TICKET_WIDTH-10, y, f"S/ {cierre['total_efectivo']:.2f}")
-    y -= 15
-
-    pdf.drawString(10, y, "Yape:")
-    pdf.drawRightString(TICKET_WIDTH-10, y, f"S/ {cierre['total_yape']:.2f}")
-    y -= 15
-
-    pdf.drawString(10, y, "Tarjeta:")
-    pdf.drawRightString(TICKET_WIDTH-10, y, f"S/ {cierre['total_tarjeta']:.2f}")
-    y -= 20
-
-    pdf.line(10, y, TICKET_WIDTH-10, y)
-    y -= 20
-
-    pdf.setFont("Helvetica-Bold", 10)
-    pdf.drawString(10, y, "TOTAL GENERAL:")
-    pdf.drawRightString(TICKET_WIDTH-10, y, f"S/ {cierre['total_general']:.2f}")
-    y -= 20
-
-    pdf.showPage()
-    pdf.save()
-    buffer.seek(0)
-
-    return send_file(
-        buffer,
-        download_name=f"Cierre_{cierre['fecha']}.pdf",
-        mimetype="application/pdf"
-    )
 
 @app.route("/api/pedidos", methods=["POST"])
 def api_crear_pedido():
