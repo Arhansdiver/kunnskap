@@ -152,11 +152,7 @@ else {
             vistaUsuarios.classList.add("hidden");
             vistaRecetario.classList.add("hidden");
 
-            if (tab === "reportes") {
-            cargarReportes();
-            cargarCierres();
-
-            } else if (tab === "dashboard") {
+            if (tab === "dashboard") {
                 vistaDashboard.classList.remove("hidden");
                 cargarDashboard();
 
@@ -198,15 +194,16 @@ else {
                 vistaInventario.classList.add("hidden");
                 vistaPagos.classList.remove("hidden");
                 cargarPagos();
-            }
-            else if (tab === "reportes") {
+            }else if (tab === "reportes") {
+            vistaReportes.classList.remove("hidden");
 
-                setTimeout(() => {
-                    cargarReportes();
-                }, 200); // pequeño delay para asegurar que los pagos cargaron
-                
-                vistaReportes.classList.remove("hidden");
-            }
+            // Cargar diarios + semanales
+            cargarReportes();
+
+            // Cargar historial de cierres
+            cargarCierres();
+        }
+
 
         
         });
@@ -315,6 +312,7 @@ else {
         `;
     });
 }
+
 
 function imprimirCierre(id) {
     window.open(`/api/cierres/print/${id}`, "_blank");
@@ -606,11 +604,7 @@ function imprimirCierre(id) {
     function showRecetaAlert(tipo, mensaje) {
     const box = document.getElementById("alertReceta");
 
-    box.className = "receta-alert";
-    showRecetaAlert("ok", "Producto agregado al menú.");
-    showRecetaAlert("error", "Este producto ya existe.");
-    showRecetaAlert("warn", "Este producto no está en el menú.");
-
+    box.className = "receta-alert receta-alert-" + tipo;
     box.textContent = mensaje;
     box.style.display = "block";
 
@@ -618,6 +612,7 @@ function imprimirCierre(id) {
         box.style.display = "none";
     }, 2000);
 }
+
 
 
     function calcularEstadoStock(stockActual, stockMinimo) {
@@ -1025,7 +1020,7 @@ async function procesarPago() {
 
             <button class="ticket-btn" onclick="window.print()">🖨️ Imprimir</button>
 
-            <button class="ticket-btn" onclick="window.open('/api/admin/boleta/' + data.pago_id, "_blank")">
+            <button class="ticket-btn" onclick="window.open('/api/admin/boleta/' + data.pago_id, '_blank')">
                 🧾 Descargar Boleta
             </button>
         </div>
