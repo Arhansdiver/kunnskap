@@ -171,40 +171,6 @@ def generar_pdf_cierre(cierre):
     return send_file(buffer, download_name="cierre.pdf", as_attachment=False)
 
 
-@app.route("/api/admin/reportes/cierre", methods=["POST"])
-def api_generar_cierre_diario():
-    conn = get_db()
-    cur = conn.cursor()
-
-    # Monto total del día por método
-    cur.execute("""
-        SELECT 
-            IFNULL(SUM(CASE WHEN metodo='efectivo' THEN monto END),0),
-            IFNULL(SUM(CASE WHEN metodo='yape' THEN monto END),0),
-            IFNULL(SUM(CASE WHEN metodo='tarjeta' THEN monto END),0)
-        FROM pagos
-        WHERE DATE(fecha) = DATE('now')
-    """)
-
-    ef, yp, tj = cur.fetchone()
-
-    total = float(ef) + float(yp) + float(tj)
-
-    # registrar cierre
-    cur.execute("""
-        INSERT INTO cierres_diarios (fecha, total_efectivo, total_yape, total_tarjeta, total_general)
-        VALUES (DATE('now'), ?, ?, ?, ?)
-    """, (ef, yp, tj, total))
-
-    conn.commit()
-    conn.close()
-
-    return {
-        "ok": True,
-        "msg": "Cierre registrado correctamente.",
-        "total": total
-    }
-
 
 @app.route("/api/cierres/reporte-dia")
 def api_reporte_del_dia():
