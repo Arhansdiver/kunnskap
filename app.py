@@ -6,11 +6,9 @@ from flask import send_file
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 import io
-from fpdf import FPDF
 from datetime import datetime
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from flask import make_response
 from reportlab.pdfgen import canvas
 from io import BytesIO
 app = Flask(__name__)
