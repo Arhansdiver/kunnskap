@@ -5,6 +5,7 @@
     <title>KUNNSKAP – Panel administrador</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/print.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
 <body>
@@ -235,7 +236,6 @@
     </div>
 </section>
 
-
 <!-- VISTA RECETARIO -->
 <section id="vistaRecetario" class="admin-panel hidden">
 
@@ -251,6 +251,9 @@
     <div class="inv-actions">
         <button id="btnNuevaReceta" class="btn-primary">Nueva receta</button>
     </div>
+
+    <!-- 🔔 ALERTA VISUAL DEL RECETARIO -->
+    <div id="alertReceta" class="receta-alert hidden"></div>
 
     <div class="recetario-layout">
         <div class="recetario-lista">
@@ -288,8 +291,6 @@
 </section>
 
 
-
-
 <!-- VISTA PAGOS -->
 <section id="vistaPagos" class="admin-panel hidden">
     <div class="panel-header">
@@ -310,13 +311,14 @@
             <div id="listaPagados" class="pagos-grid"></div>
         </div>
 
-        <div class="pagos-detalle">
+        <div class="pagos-detalle pagos-detalle-pro">
             <h3>Detalle del pago</h3>
-            <div id="detallePago">Selecciona un pedido.</div>
+            <div id="detallePago" class="pago-panel">
+                Selecciona un pedido.
+            </div>
         </div>
     </div>
 </section>
-
 
 
 
@@ -332,17 +334,35 @@
     </div>
 
     <div class="reportes-layout">
+
+        <!-- Reporte Diario -->
         <div class="reporte-card">
             <h3>Reporte Diario</h3>
             <div id="reporteDiario">Sin datos.</div>
         </div>
 
+        <!-- Reporte Semanal -->
         <div class="reporte-card">
             <h3>Reporte Semanal</h3>
+
+            <!-- Botón DETALLADO aquí adentro -->
+            <button class="btn btn-warning" onclick="descargarReporteSemanal()"
+                    style="margin-bottom: 10px;">
+                Descargar reporte detallado (PDF)
+            </button>
+
             <div id="reporteSemanal">Sin datos.</div>
         </div>
+
+        <!-- Historial -->
+        <div class="reporte-card">
+            <h3>Historial de cierres</h3>
+            <div id="listaCierres">Cargando...</div>
+        </div>
+
     </div>
 </section>
+
 
 </main>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

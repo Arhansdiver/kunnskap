@@ -936,3 +936,328 @@ body {
         border-radius: 16px;
     }
 }
+/* ==== PAGOS: Estilos mejorados === */
+
+.pago-panel {
+    background: #1a1a1a;
+    border: 2px solid #444;
+    padding: 18px;
+    border-radius: 10px;
+    color: white;
+    animation: fadeIn .3s ease;
+}
+
+.pago-input-error {
+    border: 2px solid #ff4444 !important;
+    animation: shake .2s linear;
+}
+
+.pago-alert {
+    padding: 10px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    font-weight: 600;
+}
+
+.pago-alert-error {
+    background: rgba(255, 0, 0, 0.2);
+    color: #ff6b6b;
+    border-left: 4px solid #ff4444;
+}
+
+.pago-alert-ok {
+    background: rgba(0, 255, 120, 0.2);
+    color: #00e676;
+    border-left: 4px solid #00e676;
+}
+
+.vuelto-preview {
+    margin-top: 12px;
+    font-size: 1.4rem;
+    font-weight: bold;
+    text-align: center;
+    padding: 10px;
+    border-radius: 8px;
+    background: #111;
+    border: 2px solid #222;
+    transition: .3s ease;
+}
+
+.vuelto-preview.ok {
+    background: rgba(0, 255, 120, 0.15);
+    border-color: #00e676;
+}
+
+.vuelto-preview.bad {
+    background: rgba(255, 0, 0, 0.15);
+    border-color: #ff4444;
+}
+
+
+/* ===== Animaciones ===== */
+
+@keyframes shake {
+    0% { transform: translateX(0); }
+    25% { transform: translateX(-4px); }
+    50% { transform: translateX(4px); }
+    75% { transform: translateX(-4px); }
+    100% { transform: translateX(0); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ================================
+   🎨 ESTILO RECETARIO + MENÚ
+=================================== */
+
+.pago-card {
+    position: relative;
+    border: 2px solid #1f2937;
+    background: #111827;
+    color: #e5e7eb;
+    padding: 14px;
+    border-radius: 12px;
+    transition: 0.25s ease;
+}
+
+.pago-card:hover {
+    transform: scale(1.03);
+    border-color: #3b82f6;
+    box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+}
+
+/* Sello “EN MENÚ” */
+.sello-menu {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: #10b981;
+    color: #fff;
+    padding: 4px 8px;
+    font-size: 11px;
+    border-radius: 8px;
+    font-weight: bold;
+    text-transform: uppercase;
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+}
+
+
+/* Botones mini mejorados */
+.btn-mini {
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    transition: 0.2s;
+}
+
+/* Verde agregar */
+.btn-add-menu {
+    background: #10b981;
+    color: #fff;
+}
+.btn-add-menu:hover {
+    background: #0d9368;
+    transform: scale(1.05);
+}
+
+/* Rojo quitar */
+.btn-remove-menu {
+    background: #ef4444;
+    color: #fff;
+}
+.btn-remove-menu:hover {
+    background: #b52e2e;
+    transform: scale(1.05);
+}
+
+/* Azul editar */
+.btn-edit-menu {
+    background: #3b82f6;
+    color: #fff;
+}
+.btn-edit-menu:hover {
+    background: #245bb1;
+    transform: scale(1.05);
+}
+
+/* Amarillo advertencia */
+.btn-warning-menu {
+    background: #f59e0b;
+    color: #fff;
+}
+.btn-warning-menu:hover {
+    background: #d88406;
+    transform: scale(1.05);
+}
+
+/* Contenedor de alertas */
+.receta-alert {
+    padding: 10px;
+    color: #fff;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    display: none;
+}
+
+.receta-alert-ok {
+    background: #10b981;
+}
+.receta-alert-error {
+    background: #ef4444;
+}
+.receta-alert-warn {
+    background: #f59e0b;
+}
+
+
+/* Layout móvil mejorado */
+@media (max-width: 640px) {
+
+    .recetario-layout {
+        display: block;
+    }
+
+    .pago-card {
+        padding: 16px;
+        margin-bottom: 14px;
+    }
+
+    .recetario-lista h3,
+    .recetario-form-wrapper h3 {
+        text-align: center;
+    }
+
+    .receta-row {
+        flex-direction: column !important;
+    }
+
+    .btn-mini {
+        width: 100%;
+        margin-top: 6px;
+    }
+}
+/* ============================================
+   TICKET TÉRMICO – ESTILO TIPO BOLETA
+   ============================================ */
+
+.ticket {
+    width: 270px;
+    margin: 0 auto;
+    padding: 12px;
+    background: #ffffff;
+    color: #111;
+    font-family: "Courier New", monospace;
+    border-radius: 6px;
+    border: 1px dashed #555;
+}
+
+.ticket h2 {
+    font-size: 1.1rem;
+    text-align: center;
+    margin-bottom: 6px;
+}
+
+.ticket small {
+    display: block;
+    text-align: center;
+    margin-bottom: 10px;
+    color: #444;
+}
+
+.ticket .line {
+    border-bottom: 1px dashed #999;
+    margin: 6px 0;
+}
+
+.ticket .item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+}
+
+.ticket-total {
+    font-weight: bold;
+    margin-top: 10px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.95rem;
+}
+
+.ticket-btn {
+    margin-top: 12px;
+    width: 100%;
+    background: #111827;
+    color: white;
+    padding: 8px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+}
+
+.ticket-btn:hover {
+    background: #1f2937;
+}
+
+@media (max-width: 500px) {
+    .ticket {
+        transform: scale(0.95);
+    }
+}
+.cierres-lista {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.cierre-item {
+    background: #111;
+    border: 1px solid #FFD700;
+    padding: 12px 15px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(255,215,0,0.2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.cierre-item span {
+    font-size: 14px;
+}
+
+.btn-cierre-print {
+    background: #FFD700;
+    color: #000;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: none;
+    font-weight: bold;
+}
+@media print {
+    body * {
+        visibility: hidden !important;
+    }
+
+    .ticket, .ticket * {
+        visibility: visible !important;
+    }
+
+    .ticket {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 80mm;   /* tamaño ticket térmico */
+    }
+}
+.reporte-card button {
+    width: 100%;
+    padding: 8px;
+    border-radius: 8px;
+    margin-top: 5px;
+}

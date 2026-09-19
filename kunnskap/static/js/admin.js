@@ -83,6 +83,7 @@ document.addEventListener("DOMContentLoaded", () => {
         tabUsuarios.style.display = "none";
         // Solo queda: pedidos, recetario
     }
+    
 
     if (userRol === "caja") {
         tabDashboard.style.display = "none";
@@ -151,7 +152,6 @@ else {
             vistaUsuarios.classList.add("hidden");
             vistaRecetario.classList.add("hidden");
 
-
             if (tab === "dashboard") {
                 vistaDashboard.classList.remove("hidden");
                 cargarDashboard();
@@ -194,15 +194,16 @@ else {
                 vistaInventario.classList.add("hidden");
                 vistaPagos.classList.remove("hidden");
                 cargarPagos();
-            }
-            else if (tab === "reportes") {
+            }else if (tab === "reportes") {
+            vistaReportes.classList.remove("hidden");
 
-                setTimeout(() => {
-                    cargarReportes();
-                }, 200); // pequeño delay para asegurar que los pagos cargaron
-                
-                vistaReportes.classList.remove("hidden");
-            }
+            // Cargar diarios + semanales
+            cargarReportes();
+
+            // Cargar historial de cierres
+            cargarCierres();
+        }
+
 
         
         });
@@ -281,6 +282,41 @@ else {
     }
 });
 
+    async function cargarCierres() {
+    const cont = document.getElementById("listaCierres");
+
+    const resp = await fetch("/api/cierres/lista");
+    const data = await resp.json();
+
+    if (!data.ok) {
+        cont.innerHTML = "Error cargando cierres.";
+        return;
+    }
+
+    if (!data.cierres.length) {
+        cont.innerHTML = "<p>No hay cierres registrados.</p>";
+        return;
+    }
+
+    cont.innerHTML = "";
+
+    data.cierres.forEach(c => {
+        cont.innerHTML += `
+            <p>
+                <strong>${c.fecha}</strong> — 
+                Total: S/ ${Number(c.total_general).toFixed(2)}
+                <button class="btn-mini" onclick="imprimirCierre(${c.id})">
+                    Imprimir
+                </button>
+            </p>
+        `;
+    });
+}
+
+
+function imprimirCierre(id) {
+    window.open(`/api/cierres/print/${id}`, "_blank");
+}
 
     // --- Funciones Pedidos ---
 
@@ -565,6 +601,20 @@ else {
         });
     }
 
+    function showRecetaAlert(tipo, mensaje) {
+    const box = document.getElementById("alertReceta");
+
+    box.className = "receta-alert receta-alert-" + tipo;
+    box.textContent = mensaje;
+    box.style.display = "block";
+
+    setTimeout(() => {
+        box.style.display = "none";
+    }, 2000);
+}
+
+
+
     function calcularEstadoStock(stockActual, stockMinimo) {
         const sa = parseFloat(stockActual);
         const sm = parseFloat(stockMinimo);
@@ -637,26 +687,30 @@ function editarIngrediente(ing) {
         }
     }
 
-    // PAGOS
+// ==========================
+//        PAGOS REALES
+// ==========================
+
 const listaPorCobrar = document.getElementById("listaPorCobrar");
 const listaPagados = document.getElementById("listaPagados");
 const detallePago = document.getElementById("detallePago");
 
 let pedidoParaPagar = null;
 
-// Cargar pagos al cambiar de tab
-async function cargarPagos(){
+// Cargar pagos
+async function cargarPagos() {
     await cargarPendientesPago();
     await cargarPagados();
 }
 
-async function cargarPendientesPago(){
+// Pedidos pendientes de pago
+async function cargarPendientesPago() {
     const resp = await fetch("/api/admin/pagos/pendientes");
     const data = await resp.json();
 
     listaPorCobrar.innerHTML = "";
 
-    data.pendientes.forEach(p => {
+    (data.pendientes || []).forEach(p => {
         const card = document.createElement("div");
         card.className = "pago-card";
         card.innerHTML = `
@@ -664,43 +718,76 @@ async function cargarPendientesPago(){
             Cliente: ${p.cliente_nombre}<br>
             Mesa: ${p.mesa}<br>
             Total: S/ ${Number(p.total).toFixed(2)}
-
         `;
 
-        card.addEventListener("click", () => {
-            mostrarDetallePago(p);
-        });
-
+        card.addEventListener("click", () => mostrarDetallePago(p));
         listaPorCobrar.appendChild(card);
     });
 }
 
-async function cargarPagados(){
-    const resp = await fetch("/api/admin/pagos/pagados");
-    const data = await resp.json();
+// Pagados
+function mostrarDetallePago(p) {
+    pedidoParaPagar = p;
 
-    listaPagados.innerHTML = "";
+    // ============================================================
+    // 🟢 SI EL PAGO YA ESTÁ PAGADO → MOSTRAR TICKET / BOLETA
+    // ============================================================
+    if (p.estado === "pagado") {
 
-    data.pagados.forEach(p => {
-        const card = document.createElement("div");
-        card.className = "pago-card";
-        card.innerHTML = `
-            <strong>Pedido #${p.pedido_id}</strong><br>
-            Cliente: ${p.cliente_nombre}<br>
-            Mesa: ${p.mesa}<br>
-            Total: S/ ${Number(p.total).toFixed(2)}
+        detallePago.innerHTML = `
+    <div class="ticket">
+        <h2>KUNNSKAP</h2>
+        <small>BOLETA ELECTRÓNICA</small>
 
-        `;
-        listaPagados.appendChild(card);
-    });
-}
+        <div class="line"></div>
 
-function mostrarDetallePago(pedido){
-    pedidoParaPagar = pedido;
+        <div class="item"><span>Pedido:</span><span>#${idReal}</span></div>
+        <div class="item"><span>Método:</span><span>${metodo.toUpperCase()}</span></div>
+
+        <div class="line"></div>
+
+        <div class="item"><span>Total:</span><span>S/ ${total.toFixed(2)}</span></div>
+
+        ${
+            recargo > 0
+            ? `<div class="item"><span>Recargo (3%):</span><span>S/ ${recargo.toFixed(2)}</span></div>`
+            : ""
+        }
+
+        ${
+            vuelto > 0
+            ? `<div class="item"><span>Vuelto:</span><span>S/ ${vuelto.toFixed(2)}</span></div>`
+            : ""
+        }
+
+        <div class="ticket-total">
+            <span>PAGADO</span>
+            <span>S/ ${(total + recargo).toFixed(2)}</span>
+        </div>
+
+        <button class="ticket-btn" onclick="window.print()">🖨️ Imprimir</button>
+
+        <button class="ticket-btn" onclick="window.open('/api/admin/boleta/${data.pago_id}', '_blank')">
+            🧾 Descargar Boleta
+        </button>
+    </div>
+`;
+
+
+        return; // ⛔ IMPORTANTE: NO CONTINUAR CON EL FORMULARIO
+    }
+
+    // ============================================================
+    // 🔵 SI NO ESTÁ PAGADO → MOSTRAR FORMULARIO NORMAL
+    // ============================================================
+
+    const total = Number(p.total).toFixed(2);
 
     detallePago.innerHTML = `
-        <h4>Pedido #${pedido.id}</h4>
-        <p><strong>Total:</strong> S/ ${Number(pedido.total).toFixed(2)}</p>
+        <div class="pago-alert pago-alert-info hidden" id="alertPago"></div>
+
+        <h4>Pedido #${p.pedido_id}</h4>
+        <p><strong>Total:</strong> S/ ${total}</p>
 
         <label>Método de pago</label>
         <select id="pagoMetodo">
@@ -709,55 +796,169 @@ function mostrarDetallePago(pedido){
             <option value="tarjeta">Tarjeta (+3%)</option>
         </select>
 
-        <label>Monto recibido</label>
-        <input type="number" id="pagoMonto" placeholder="Ej: 50.00">
+        <div id="grupoMonto">
+            <label>Monto recibido</label>
+            <input type="number" id="pagoMonto" placeholder="Ej: 50.00">
+        </div>
 
-        <label>Comprobante (opcional)</label>
-        <input type="text" id="pagoComprobante" placeholder="URL imagen (para yape)">
+        <div class="vuelto-preview hidden" id="previewVuelto">Vuelto: S/ 0.00</div>
+
+        <div id="grupoRecargo" class="hidden">
+            <p><strong>Recargo tarjeta (3%):</strong> 
+            S/ <span id="txtRecargo">0.00</span></p>
+        </div>
+
+        <label>Comprobante (Yape)</label>
+        <input type="text" id="pagoComprobante" placeholder="URL imagen">
 
         <button class="btn-primary" id="btnConfirmarPago">Confirmar pago</button>
     `;
 
-    // Solo este botón existe ahora
+    document.getElementById("pagoMetodo").addEventListener("change", actualizarUI);
+    document.getElementById("pagoMonto").addEventListener("input", actualizarEfectivo);
     document.getElementById("btnConfirmarPago").addEventListener("click", procesarPago);
+
+    actualizarUI();
+}
+
+
+
+function actualizarUI() {
+    const metodo = document.getElementById("pagoMetodo").value;
+    const total = Number(pedidoParaPagar.total);
+
+    const grupoMonto = document.getElementById("grupoMonto");
+    const grupoRecargo = document.getElementById("grupoRecargo");
+    const previewVuelto = document.getElementById("previewVuelto");
+    const comprobante = document.getElementById("pagoComprobante");
+
+    grupoMonto.classList.add("hidden");
+    grupoRecargo.classList.add("hidden");
+    previewVuelto.classList.add("hidden");
+
+    comprobante.disabled = true;
+
+    if (metodo === "efectivo") {
+        grupoMonto.classList.remove("hidden");
+    }
+
+    if (metodo === "yape") {
+        comprobante.disabled = false;
+    }
+
+    if (metodo === "tarjeta") {
+        if (total >= 20) {
+            const rec = (total * 0.03).toFixed(2);
+            document.getElementById("txtRecargo").textContent = rec;
+            grupoRecargo.classList.remove("hidden");
+        }
+    }
+}
+
+
+function actualizarEfectivo() {
+    const monto = Number(document.getElementById("pagoMonto").value || 0);
+    const total = Number(pedidoParaPagar.total);
+
+    const preview = document.getElementById("previewVuelto");
+
+    if (monto === 0) {
+        preview.classList.add("hidden");
+        return;
+    }
+
+    preview.classList.remove("hidden");
+
+    if (monto < total) {
+        preview.classList.remove("ok");
+        preview.classList.add("bad");
+        preview.textContent = "Monto insuficiente";
+    } else {
+        preview.classList.remove("bad");
+        preview.classList.add("ok");
+        preview.textContent = `Vuelto: S/ ${(monto - total).toFixed(2)}`;
+    }
 }
 
 
 async function procesarPago() {
     const metodo = document.getElementById("pagoMetodo").value;
-    let montoRecibido = parseFloat(document.getElementById("pagoMonto").value || 0);
-    const comprobante = document.getElementById("pagoComprobante").value || null;
-
     const total = Number(pedidoParaPagar.total);
-    let recargo = 0;
+
+    const alerta = document.getElementById("alertPago");
+    const inpMonto = document.getElementById("pagoMonto");
+    const comprobante = document.getElementById("pagoComprobante").value.trim();
+
+    // Reset visual
+    alerta.classList.add("hidden");
+    alerta.textContent = "";
+    inpMonto.classList.remove("pago-input-error");
+
+    function showError(msg) {
+        alerta.className = "pago-alert pago-alert-error";
+        alerta.textContent = msg;
+        alerta.classList.remove("hidden");
+    }
+
+    let montoFinal = total;
     let vuelto = 0;
+    let recargo = 0;
 
-    // --- EFECTIVO ---
+    // EFECTIVO
     if (metodo === "efectivo") {
-        if (montoRecibido < total) {
-            return alert("El monto recibido es menor al total a pagar.");
+        const recibido = Number(inpMonto.value || 0);
+
+        if (!recibido || recibido <= 0) {
+            showError("Debe ingresar un monto válido.");
+            inpMonto.classList.add("pago-input-error");
+            return;
         }
-        vuelto = montoRecibido - total;
+
+        if (recibido < total) {
+            showError("El monto recibido no puede ser menor al total.");
+            inpMonto.classList.add("pago-input-error");
+            return;
+        }
+
+        vuelto = recibido - total;
+        montoFinal = total;
     }
 
-    // --- TARJETA ---
+    // YAPE
+    if (metodo === "yape") {
+        inpMonto.value = "";
+        inpMonto.disabled = true;
+
+        if (!comprobante) {
+            showError("Debe ingresar el comprobante (URL de Yape).");
+            return;
+        }
+
+        montoFinal = total;
+    } else {
+        inpMonto.disabled = false;
+    }
+
+    // TARJETA
     if (metodo === "tarjeta") {
-        recargo = total * 0.03;
-        montoRecibido = total + recargo;
+        inpMonto.value = "";
+        inpMonto.disabled = true;
+
+        if (total >= 20) {
+            recargo = Number((total * 0.03).toFixed(2));
+        }
+
+        montoFinal = total + recargo;
     }
 
-    // --- YAPE ---
-    if (metodo === "yape" && !comprobante) {
-        return alert("Debe ingresar el comprobante (URL de Yape).");
-    }
-
+    // ENVIAR A BD
     const body = {
         pedido_id: pedidoParaPagar.pedido_id || pedidoParaPagar.id,
         metodo,
-        monto: montoRecibido,
+        monto: montoFinal,
         vuelto,
         recargo,
-        comprobante_url: comprobante
+        comprobante_url: comprobante || null
     };
 
     const resp = await fetch("/api/admin/pagos/registrar", {
@@ -768,31 +969,67 @@ async function procesarPago() {
 
     const data = await resp.json();
 
-    if (data.ok) {
-        alert("Pago registrado correctamente.");
-
-        detallePago.innerHTML = `
-            <h4>Pago completado</h4>
-            <p><strong>Método:</strong> ${metodo}</p>
-            <p><strong>Total:</strong> S/ ${total.toFixed(2)}</p>
-            ${metodo === "efectivo" ? `<p><strong>Entregado:</strong> S/ ${montoRecibido.toFixed(2)}</p>
-            <p><strong>Vuelto:</strong> S/ ${vuelto.toFixed(2)}</p>` : ""}
-            ${metodo === "tarjeta" ? `<p><strong>Incluye recargo 3%:</strong> S/ ${recargo.toFixed(2)}</p>` : ""}
-            <button class="btn-outline" onclick="window.open('/api/admin/boleta/${pedidoParaPagar.pedido_id}', '_blank')">
-                Descargar Boleta
-            </button>
-            <button class="btn-outline" onclick="generarFactura(${pedidoParaPagar.pedido_id})">
-                Generar Factura
-            </button>
-        `;
-
-        cargarPagos();
-
-    } else {
-        alert(data.msg);
+    if (!data.ok) {
+        showError(data.msg || "Error al registrar el pago.");
+        return;
     }
-}
 
+    // ======================================
+    // ⭐ BLOQUE FINAL — MOSTRAR TICKET
+    // ======================================
+
+    const idReal = pedidoParaPagar.pedido_id || pedidoParaPagar.id;
+
+    alerta.className = "pago-alert pago-alert-ok";
+    alerta.textContent = "Pago registrado correctamente.";
+    alerta.classList.remove("hidden");
+
+    // Evitar duplicado
+    pedidoParaPagar = null;
+
+    detallePago.innerHTML = `
+        <div class="ticket">
+            <h2>KUNNSKAP</h2>
+            <small>BOLETA ELECTRÓNICA</small>
+
+            <div class="line"></div>
+
+            <div class="item"><span>Pedido:</span><span>#${idReal}</span></div>
+            <div class="item"><span>Método:</span><span>${metodo.toUpperCase()}</span></div>
+
+            <div class="line"></div>
+
+            <div class="item"><span>Total:</span><span>S/ ${total.toFixed(2)}</span></div>
+
+            ${
+                recargo > 0
+                ? `<div class="item"><span>Recargo (3%):</span><span>S/ ${recargo.toFixed(2)}</span></div>`
+                : ""
+            }
+
+            ${
+                vuelto > 0
+                ? `<div class="item"><span>Vuelto:</span><span>S/ ${vuelto.toFixed(2)}</span></div>`
+                : ""
+            }
+
+            <div class="ticket-total">
+                <span>PAGADO</span>
+                <span>S/ ${(total + recargo).toFixed(2)}</span>
+            </div>
+
+            <button class="ticket-btn" onclick="window.print()">🖨️ Imprimir</button>
+
+            <button class="ticket-btn" onclick="window.open('/api/admin/boleta/' + data.pago_id, '_blank')">
+                🧾 Descargar Boleta
+            </button>
+        </div>
+    `;
+
+    // Recarga listas sin duplicados
+    await cargarPendientesPago();
+    await cargarPagados();
+}
 
 
 function generarFactura(id) {
@@ -822,6 +1059,7 @@ async function cargarReportes() {
     await cargarReporteDiario();
     await cargarReporteSemanal();
 }
+
 // Devuelve fecha local en formato YYYY-MM-DD
 function formatFechaLocal(date) {
     const y = date.getFullYear();
@@ -831,84 +1069,50 @@ function formatFechaLocal(date) {
 }
 
 async function cargarReporteDiario() {
-    const hoy = formatFechaLocal(new Date());   // fecha local
-
-    const resp = await fetch("/api/admin/pagos/pagados");
-    const data = await resp.json();
-
     const cont = document.getElementById("reporteDiario");
 
-    let totalEfec = 0, totalYape = 0, totalTarj = 0;
+    const resp = await fetch("/api/admin/reportes/diario");
+    const data = await resp.json();
 
-    (data.pagados || []).forEach(p => {
-        // Convertimos la fecha del pago a local y la formateamos
-        const fechaPago = formatFechaLocal(new Date(p.fecha_hora));
+    if (!data.ok) {
+        cont.innerHTML = "Error cargando reporte diario.";
+        return;
+    }
 
-        if (fechaPago === hoy) {
-            const monto = Number(p.monto);
-            if (p.metodo === "efectivo") totalEfec += monto;
-            if (p.metodo === "yape")     totalYape += monto;
-            if (p.metodo === "tarjeta")  totalTarj += monto;
-        }
-    });
-
-    const totalGeneral = totalEfec + totalYape + totalTarj;
+    const r = data.data;
 
     cont.innerHTML = `
-        <h4>Reporte del día (${hoy})</h4>
-        <p>Efectivo: S/ ${totalEfec.toFixed(2)}</p>
-        <p>Yape: S/ ${totalYape.toFixed(2)}</p>
-        <p>Tarjeta: S/ ${totalTarj.toFixed(2)}</p>
-        <p><strong>Total:</strong> S/ ${totalGeneral.toFixed(2)}</p>
+        <h4>Reporte del día (${r.fecha})</h4>
+        <p>Efectivo: S/ ${r.total_efectivo.toFixed(2)}</p>
+        <p>Yape: S/ ${r.total_yape.toFixed(2)}</p>
+        <p>Tarjeta: S/ ${r.total_tarjeta.toFixed(2)}</p>
+        <p><strong>Total:</strong> S/ ${r.total_general.toFixed(2)}</p>
     `;
 }
 
 
 
+
 async function cargarReporteSemanal() {
-    const hoy = new Date();
+    const cont = document.getElementById("reporteSemanal");
 
-    // Calcular lunes de la semana actual en hora local
-    const diaSemana = hoy.getDay(); // 0=domingo,1=lunes,...
-    const offset = (diaSemana === 0) ? -6 : (1 - diaSemana); // mover hasta lunes
-    const inicio = new Date(hoy);
-    inicio.setDate(hoy.getDate() + offset);
-
-    const resp = await fetch("/api/admin/pagos/pagados");
+    const resp = await fetch("/api/admin/reportes/semanal");
     const data = await resp.json();
 
-    const cont = document.getElementById("reporteSemanal");
-    const dias = {};
-
-    // Inicializar los 7 días de la semana (local)
-    for (let i = 0; i < 7; i++) {
-        const fecha = new Date(inicio);
-        fecha.setDate(inicio.getDate() + i);
-        const f = formatFechaLocal(fecha);
-        dias[f] = { efectivo: 0, yape: 0, tarjeta: 0, total: 0 };
+    if (!data.ok) {
+        cont.innerHTML = "Error cargando reporte semanal.";
+        return;
     }
-
-    (data.pagados || []).forEach(p => {
-        const fecha = formatFechaLocal(new Date(p.fecha_hora));
-
-        if (dias[fecha]) {
-            const monto = Number(p.monto);
-            if (p.metodo === "efectivo") dias[fecha].efectivo += monto;
-            if (p.metodo === "yape")     dias[fecha].yape     += monto;
-            if (p.metodo === "tarjeta")  dias[fecha].tarjeta  += monto;
-            dias[fecha].total += monto;
-        }
-    });
 
     let html = "<h4>Reporte semanal</h4>";
 
-    Object.keys(dias).forEach(d => {
+    data.dias.forEach(d => {
         html += `
-            <p><strong>${d}</strong><br>
-            Efectivo: S/ ${dias[d].efectivo.toFixed(2)} |
-            Yape: S/ ${dias[d].yape.toFixed(2)} |
-            Tarjeta: S/ ${dias[d].tarjeta.toFixed(2)} |
-            <strong>Total: S/ ${dias[d].total.toFixed(2)}</strong>
+            <p><strong>${d.fecha}</strong><br>
+            Efectivo: S/ ${d.total_efectivo.toFixed(2)} |
+            Yape: S/ ${d.total_yape.toFixed(2)} |
+            Tarjeta: S/ ${d.total_tarjeta.toFixed(2)} |
+            <strong>Total: S/ ${d.total_general.toFixed(2)}</strong>
             </p>
             <hr>
         `;
@@ -919,24 +1123,52 @@ async function cargarReporteSemanal() {
 
 
 
-
 // Cierre diario
 document.getElementById("btnCierreDiario").addEventListener("click", async () => {
 
-    const resp = await fetch("/api/admin/reportes/cierre", {
-        method: "POST"
-    });
+    // Si aún no son las 10 pm → reporte del día
+    if (!esHoraDeCierre()) {
+        imprimirReporteDelDia();
+        return;
+    }
 
-    // Como ahora devuelve PDF, no es JSON
+    // Si ya pasó las 10 pm → generar cierre real
+    const resp = await fetch("/api/admin/reportes/cierre", { method: "POST" });
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
 
-    // Abrir el PDF en nueva pestaña (voucher)
     window.open(url, "_blank");
-
     alert("Cierre realizado e impreso.");
+
     cargarReportes();
 });
+
+
+function esHoraDeCierre() {
+    const ahora = new Date();
+    return ahora.getHours() >= 22; // 22 = 10 pm
+}
+
+async function imprimirReporteDelDia() {
+    const resp = await fetch("/api/cierres/reporte-dia");
+    const data = await resp.json();
+
+    if (!data.ok) {
+        alert("No se pudo generar el reporte.");
+        return;
+    }
+
+    const nueva = window.open("", "_blank");
+    nueva.document.write(`
+        <h2>Reporte del Día</h2>
+        <p>Efectivo: S/ ${data.resumen.efectivo || 0}</p>
+        <p>Yape: S/ ${data.resumen.yape || 0}</p>
+        <p>Tarjeta: S/ ${data.resumen.tarjeta || 0}</p>
+        <h3>Total: S/ ${data.total}</h3>
+        <script>window.print()</script>
+    `);
+}
+
 
 
 async function cargarDashboard() {
@@ -1002,6 +1234,10 @@ function renderChartTopProductos(top) {
             }
         }
     });
+}
+
+function descargarReporteSemanal() {
+    window.open("/api/admin/reportes/semanal/pdf", "_blank");
 }
 
 function renderChartInventario(ingredientes) {
@@ -1099,32 +1335,95 @@ function renderListaRecetas(recetas) {
 
     recetas.forEach(r => {
         const card = document.createElement("div");
-        card.className = "pago-card"; // reutilizo estilo
+        card.className = "pago-card";
+
         card.innerHTML = `
             <strong>${r.producto_nombre}</strong><br>
             <small>${r.descripcion || ""}</small><br>
             Ingredientes: ${r.total_ingredientes}
-            <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
+
+            <div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap;">
                 <button class="btn-mini btnVerReceta" data-id="${r.id}">Ver / Editar</button>
                 <button class="btn-mini btnDelReceta" data-id="${r.id}">Eliminar</button>
+
+                <button class="btn-mini btnAddMenu" data-prod="${r.producto_nombre}">
+                    + Agregar al menú
+                </button>
+
+                <button class="btn-mini btnRemoveMenu" data-prod="${r.producto_nombre}">
+                    - Quitar del menú
+                </button>
             </div>
         `;
 
-        const btnVer = card.querySelector(".btnVerReceta");
-        const btnDel = card.querySelector(".btnDelReceta");
+        // BOTONES EXISTENTES
+        card.querySelector(".btnVerReceta")
+            .addEventListener("click", () => editarReceta(r.id));
 
-        btnVer.addEventListener("click", () => {
-            editarReceta(r.id);
-        });
+        card.querySelector(".btnDelReceta")
+            .addEventListener("click", () => {
+                if (!confirm(`¿Eliminar la receta "${r.producto_nombre}"?`)) return;
+                eliminarReceta(r.id);
+            });
 
-        btnDel.addEventListener("click", () => {
-            if (!confirm(`¿Eliminar la receta "${r.producto_nombre}"?`)) return;
-            eliminarReceta(r.id);
-        });
+        // NUEVO → AGREGAR AL MENÚ
+        card.querySelector(".btnAddMenu")
+            .addEventListener("click", () => {
+                agregarAlMenu(r.producto_nombre);
+            });
+
+        // NUEVO → QUITAR DEL MENÚ
+        card.querySelector(".btnRemoveMenu")
+            .addEventListener("click", () => {
+                quitarDelMenu(r.producto_nombre);
+            });
 
         listaRecetas.appendChild(card);
     });
 }
+
+// ==============================
+//     MENU DEL NEGOCIO
+//     (AGREGAR / QUITAR)
+// ==============================
+
+// Agregar producto del recetario al menú
+async function agregarAlMenu(nombreReceta) {
+    const resp = await fetch("/api/admin/menu/agregar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: nombreReceta })
+    });
+
+    const data = await resp.json();
+
+    if (!data.ok) {
+        alert("⚠ " + (data.msg || "El producto ya se encuentra en el menú."));
+        return;
+    }
+
+    alert("✔ Producto agregado al menú correctamente.");
+}
+
+
+// Quitar producto del menú
+async function quitarDelMenu(nombreReceta) {
+    const resp = await fetch("/api/admin/menu/quitar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: nombreReceta })
+    });
+
+    const data = await resp.json();
+
+    if (!data.ok) {
+        alert("⚠ " + (data.msg || "Este producto no está en el menú."));
+        return;
+    }
+
+    alert("✔ Producto quitado del menú correctamente.");
+}
+
 
 function agregarFilaIngrediente(ing = null) {
     const row = document.createElement("div");
@@ -1294,6 +1593,8 @@ btnNuevoUsuario.addEventListener("click", () => {
 btnCancelarUsuario.addEventListener("click", () => {
     formUsuario.classList.add("hidden");
 });
+
+
 
 // Cargar lista
 async function cargarUsuarios() {

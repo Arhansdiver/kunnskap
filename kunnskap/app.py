@@ -1,16 +1,14 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from db_config import get_connection
 from datetime import datetime, timedelta, date
-from flask import make_response
+from decimal import Decimal, InvalidOperation
 from flask import send_file
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
-import io
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from flask import make_response
-from reportlab.pdfgen import canvas
 from io import BytesIO
+import io
+
+
 app = Flask(__name__)
 app.secret_key = "clave_super_secreta_kunnskap"   # cámbiala
 
@@ -25,6 +23,82 @@ def admin_panel():
     if "usuario" not in session:
         return redirect("/")
     return render_template("admin.html", rol=session["rol"])
+
+@app.route("/api/admin/boleta/<int:pedido_id>")
+def generar_boleta_pdf(pedido_id):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    # Datos del pago
+    cursor.execute("""
+        SELECT pagos.*, pedidos.cliente_nombre, pedidos.mesa, pedidos.total 
+        FROM pagos 
+        JOIN pedidos ON pedidos.id = pagos.pedido_id 
+        WHERE pagos.pedido_id = %s
+        ORDER BY pagos.id DESC LIMIT 1
+    """, (pedido_id,))
+    pago = cursor.fetchone()
+
+    if not pago:
+        return "Pago no encontrado", 404
+
+    # Items del pedido
+    cursor.execute("""
+        SELECT prod.nombre, pi.cantidad, pi.subtotal
+        FROM pedido_items pi
+        JOIN productos prod ON prod.id = pi.producto_id
+        WHERE pi.pedido_id = %s
+    """, (pedido_id,))
+    items = cursor.fetchall()
+
+    from fpdf import FPDF
+    pdf = FPDF("P", "mm", (80, 200))
+    pdf.add_page()
+    pdf.set_font("Arial", size=10)
+
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 5, "KUNNSKAP CAFETERIA", ln=True, align="C")
+
+    pdf.set_font("Arial", size=9)
+    pdf.cell(0, 5, f"Cliente: {pago['cliente_nombre']}", ln=True)
+    pdf.cell(0, 5, f"Mesa: {pago['mesa']}", ln=True)
+    pdf.cell(0, 5, f"Fecha: {pago['fecha_hora']}", ln=True)
+    pdf.ln(3)
+
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 5, "Detalle de consumo:", ln=True)
+
+    pdf.set_font("Arial", size=9)
+    for item in items:
+        pdf.cell(0, 5, f"{item['cantidad']}x {item['nombre']}", ln=True)
+        pdf.cell(0, 5, f"  Subtotal: S/ {item['subtotal']:.2f}", ln=True)
+
+    pdf.ln(3)
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(0, 5, "Resumen:", ln=True)
+    pdf.set_font("Arial", size=9)
+
+    pdf.cell(0, 5, f"Método: {pago['metodo']}", ln=True)
+    pdf.cell(0, 5, f"Total consumido: S/ {pago['total']:.2f}", ln=True)
+    pdf.cell(0, 5, f"Total pagado: S/ {pago['monto']:.2f}", ln=True)
+
+    pdf.ln(4)
+    pdf.cell(0, 5, "Gracias por su compra!", ln=True, align="C")
+
+    cursor.close()
+    conn.close()
+
+    pdf_data = pdf.output(dest="S")
+    if isinstance(pdf_data, str):
+        pdf_data = pdf_data.encode("latin-1", errors="replace")
+    elif not isinstance(pdf_data, (bytes, bytearray)):
+        pdf_data = bytes(pdf_data)
+
+    return send_file(
+        io.BytesIO(pdf_data),
+        mimetype="application/pdf",
+        download_name=f"boleta_{pedido_id}.pdf"
+    )
 
 
 # --------- API: LOGIN / LOGOUT --------- #
@@ -133,46 +207,215 @@ def api_menu():
 
 # --------- API: REGISTRAR PEDIDO CLIENTE --------- #
 
-@app.route("/api/pedidos", methods=["POST"])
-def api_crear_pedido():
-    data = request.get_json()
-    cliente_nombre = data.get("cliente_nombre")
-    mesa = data.get("mesa")
-    items = data.get("items", [])  # [{producto_id, cantidad, precio}]
+@app.post("/api/admin/menu/agregar")
+def api_agregar_menu():
+    if "usuario" not in session or session.get("rol") != "admin":
+        return jsonify(ok=False, msg="No autorizado"), 401
 
-    if not cliente_nombre or not mesa or not items:
-        return jsonify({"ok": False, "msg": "Datos incompletos"}), 400
+    data = request.get_json(silent=True) or {}
+    nombre = str(data.get("nombre", "")).strip()
+
+    if not nombre:
+        return jsonify(ok=False, msg="El nombre del producto es requerido."), 400
 
     conn = get_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
 
-    # calcular total
-    total = sum([item["precio"] * item["cantidad"] for item in items])
+    try:
+        cursor.execute("SELECT id FROM menu WHERE nombre = %s LIMIT 1", (nombre,))
+        existe = cursor.fetchone()
 
-    # insertar pedido
+        if existe:
+            return jsonify(ok=False, msg="El producto ya se encuentra en el menú."), 409
+
+        cursor.execute("INSERT INTO menu (nombre) VALUES (%s)", (nombre,))
+        conn.commit()
+        return jsonify(ok=True, msg="Producto agregado al menú.")
+    except Exception as e:
+        conn.rollback()
+        print("ERROR al agregar producto al menú:", e)
+        return jsonify(ok=False, msg="No se pudo agregar el producto al menú."), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.post("/api/admin/menu/quitar")
+def api_quitar_menu():
+    if "usuario" not in session or session.get("rol") != "admin":
+        return jsonify(ok=False, msg="No autorizado"), 401
+
+    data = request.get_json(silent=True) or {}
+    nombre = str(data.get("nombre", "")).strip()
+
+    if not nombre:
+        return jsonify(ok=False, msg="El nombre del producto es requerido."), 400
+
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    try:
+        cursor.execute("SELECT id FROM menu WHERE nombre = %s LIMIT 1", (nombre,))
+        existe = cursor.fetchone()
+
+        if not existe:
+            return jsonify(ok=False, msg="El producto no está en el menú."), 404
+
+        cursor.execute("DELETE FROM menu WHERE nombre = %s", (nombre,))
+        conn.commit()
+        return jsonify(ok=True, msg="Producto retirado del menú.")
+    except Exception as e:
+        conn.rollback()
+        print("ERROR al quitar producto del menú:", e)
+        return jsonify(ok=False, msg="No se pudo quitar el producto del menú."), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route("/api/cierres/lista")
+def api_cierres_lista():
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
     cursor.execute("""
-        INSERT INTO pedidos (cliente_nombre, mesa, total, estado)
-        VALUES (%s, %s, %s, 'pendiente')
-    """, (cliente_nombre, mesa, total))
-    pedido_id = cursor.lastrowid
+        SELECT id, fecha, total_general
+        FROM cierres_diarios
+        ORDER BY fecha DESC
+    """)
 
-    # insertar detalle
-    for item in items:
-        cursor.execute("""
-            INSERT INTO pedido_items (pedido_id, producto_id, cantidad, subtotal)
-            VALUES (%s, %s, %s, %s)
-        """, (
-            pedido_id,
-            item["producto_id"],
-            item["cantidad"],
-            item["precio"] * item["cantidad"]
-        ))
-
-    conn.commit()
+    cierres = cursor.fetchall()
     cursor.close()
     conn.close()
 
-    return jsonify({"ok": True, "pedido_id": pedido_id})
+    return jsonify({"ok": True, "cierres": cierres})
+
+
+
+@app.route("/api/cierres/print/<int:id>")
+def api_cierre_print(id):
+    if "usuario" not in session or session.get("rol") != "admin":
+        return "No autorizado", 401
+
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    try:
+        cursor.execute("""
+            SELECT fecha, total_efectivo, total_yape, total_tarjeta, total_general
+            FROM cierres_diarios
+            WHERE id = %s
+        """, (id,))
+        r = cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+    if not r:
+        return "No encontrado", 404
+
+    fecha = r["fecha"]
+    ef = float(r["total_efectivo"] or 0)
+    yp = float(r["total_yape"] or 0)
+    tj = float(r["total_tarjeta"] or 0)
+    total = float(r["total_general"] or 0)
+
+    html = f"""
+        <h2>CIERRE DE CAJA – {fecha}</h2>
+        <p>Efectivo: S/ {ef:.2f}</p>
+        <p>Yape: S/ {yp:.2f}</p>
+        <p>Tarjeta: S/ {tj:.2f}</p>
+        <h3>Total: S/ {total:.2f}</h3>
+        <script>window.print()</script>
+    """
+
+    return html
+
+
+@app.route("/api/pedidos", methods=["POST"])
+def api_crear_pedido():
+    data = request.get_json(silent=True) or {}
+    cliente_nombre = str(data.get("cliente_nombre", "")).strip()
+    mesa = str(data.get("mesa", "")).strip()
+    items = data.get("items", [])
+
+    if not cliente_nombre or not mesa or not isinstance(items, list) or not items:
+        return jsonify({"ok": False, "msg": "Datos incompletos"}), 400
+
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    try:
+        total = Decimal("0")
+        items_validos = []
+
+        # El precio se obtiene desde la BD para evitar que el cliente
+        # pueda modificar el precio enviado desde JavaScript.
+        for item in items:
+            try:
+                producto_id = int(item.get("producto_id"))
+                cantidad = int(item.get("cantidad"))
+            except (TypeError, ValueError):
+                conn.rollback()
+                return jsonify({"ok": False, "msg": "Producto o cantidad inválidos"}), 400
+
+            if cantidad <= 0:
+                conn.rollback()
+                return jsonify({"ok": False, "msg": "La cantidad debe ser mayor que cero"}), 400
+
+            cursor.execute("""
+                SELECT id, nombre, precio
+                FROM productos
+                WHERE id = %s AND activo = 1
+                LIMIT 1
+            """, (producto_id,))
+            producto = cursor.fetchone()
+
+            if not producto:
+                conn.rollback()
+                return jsonify({
+                    "ok": False,
+                    "msg": f"El producto {producto_id} no está disponible."
+                }), 400
+
+            precio = Decimal(str(producto["precio"]))
+            subtotal = (precio * cantidad).quantize(Decimal("0.01"))
+            total += subtotal
+
+            items_validos.append({
+                "producto_id": producto_id,
+                "cantidad": cantidad,
+                "subtotal": subtotal
+            })
+
+        total = total.quantize(Decimal("0.01"))
+
+        cursor.execute("""
+            INSERT INTO pedidos (cliente_nombre, mesa, total, estado)
+            VALUES (%s, %s, %s, 'pendiente')
+        """, (cliente_nombre, mesa, total))
+        pedido_id = cursor.lastrowid
+
+        for item in items_validos:
+            cursor.execute("""
+                INSERT INTO pedido_items (pedido_id, producto_id, cantidad, subtotal)
+                VALUES (%s, %s, %s, %s)
+            """, (
+                pedido_id,
+                item["producto_id"],
+                item["cantidad"],
+                item["subtotal"]
+            ))
+
+        conn.commit()
+        return jsonify({"ok": True, "pedido_id": pedido_id})
+
+    except Exception as e:
+        conn.rollback()
+        print("ERROR al crear pedido:", e)
+        return jsonify({"ok": False, "msg": "No se pudo registrar el pedido"}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 
 # --------- API: PEDIDOS PARA ADMIN --------- #
@@ -249,6 +492,9 @@ def api_agregar_ingrediente():
 
 @app.route("/api/admin/ingredientes/delete/<int:ing_id>", methods=["DELETE"])
 def api_eliminar_ingrediente(ing_id):
+    if "usuario" not in session or session.get("rol") != "admin":
+        return jsonify({"ok": False, "msg": "No autorizado"}), 401
+
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM ingredientes WHERE id = %s", (ing_id,))
@@ -468,13 +714,12 @@ def api_pagos_pendientes():
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
+    # SOLO traer pedidos que NO han sido pagados
     cursor.execute("""
-        SELECT pagos.id, pagos.pedido_id, pagos.metodo,
-               pedidos.cliente_nombre, pedidos.mesa, pedidos.total
-        FROM pagos
-        JOIN pedidos ON pedidos.id = pagos.pedido_id
-        WHERE pagos.estado = 'pendiente'
-        ORDER BY pagos.id DESC
+        SELECT id AS pedido_id, cliente_nombre, mesa, total
+        FROM pedidos
+        WHERE pagado = 0
+        ORDER BY id DESC
     """)
 
     pendientes = cursor.fetchall()
@@ -493,10 +738,11 @@ def api_pagos_pagados():
     cursor = conn.cursor(dictionary=True)
 
     cursor.execute("""
-        SELECT pagos.*, pedidos.cliente_nombre
+        SELECT pagos.*, pedidos.cliente_nombre, pedidos.mesa
         FROM pagos
         JOIN pedidos ON pedidos.id = pagos.pedido_id
         WHERE pagos.estado = 'pagado'
+        ORDER BY pagos.fecha_hora DESC
     """)
 
     pagados = cursor.fetchall()
@@ -506,7 +752,6 @@ def api_pagos_pagados():
 
     return jsonify({"pagados": pagados})
 
-
 @app.route("/api/admin/pagos/registrar", methods=["POST"])
 def api_registrar_pago():
     if "usuario" not in session or session.get("rol") != "admin":
@@ -514,35 +759,178 @@ def api_registrar_pago():
 
     data = request.get_json()
 
+    if not data:
+        return jsonify({
+            "ok": False,
+            "msg": "No se recibieron datos"
+        }), 400
+
     pedido_id = data.get("pedido_id")
-    metodo = data.get("metodo")
-    monto = float(data.get("monto"))
+    metodo = str(data.get("metodo", "")).strip().lower()
     comprobante = data.get("comprobante_url")
-    vuelto = float(data.get("vuelto", 0))
-    recargo = float(data.get("recargo", 0))
+
+    try:
+        dinero_entregado = Decimal(str(data.get("monto") or 0))
+    except (InvalidOperation, ValueError, TypeError):
+        return jsonify({
+            "ok": False,
+            "msg": "Monto inválido"
+        }), 400
 
     conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    # --------------------------------------------
+    # OBTENER TOTAL REAL DEL PEDIDO
+    # --------------------------------------------
+    cursor.execute(
+        "SELECT total FROM pedidos WHERE id = %s",
+        (pedido_id,)
+    )
+
+    ped = cursor.fetchone()
+
+    if not ped:
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            "ok": False,
+            "msg": "Pedido no encontrado"
+        }), 404
+
+    total_real = Decimal(str(ped["total"])).quantize(Decimal("0.01"))
+
+    # --------------------------------------------
+    # 1) PAGO EN EFECTIVO
+    # --------------------------------------------
+    if metodo == "efectivo":
+
+        if dinero_entregado < total_real:
+            cursor.close()
+            conn.close()
+
+            return jsonify({
+                "ok": False,
+                "msg": "El monto entregado es insuficiente"
+            }), 400
+
+        vuelto = (dinero_entregado - total_real).quantize(Decimal("0.01"))
+        monto_cobrado = total_real
+        recargo = Decimal("0.00")
+
+    # --------------------------------------------
+    # 2) PAGO CON YAPE
+    # --------------------------------------------
+    elif metodo == "yape":
+
+        if dinero_entregado != Decimal("0") and dinero_entregado.quantize(Decimal("0.01")) != total_real:
+            cursor.close()
+            conn.close()
+
+            return jsonify({
+                "ok": False,
+                "msg": "En Yape el monto debe ser exacto"
+            }), 400
+
+        monto_cobrado = total_real
+        vuelto = Decimal("0.00")
+        recargo = Decimal("0.00")
+
+    # --------------------------------------------
+    # 3) PAGO CON TARJETA
+    # --------------------------------------------
+    elif metodo == "tarjeta":
+
+        if total_real > 20:
+            recargo = (total_real * Decimal("0.03")).quantize(Decimal("0.01"))
+        else:
+            recargo = Decimal("0.00")
+
+        total_con_recargo = (total_real + recargo).quantize(Decimal("0.01"))
+
+        if dinero_entregado != Decimal("0") and dinero_entregado.quantize(Decimal("0.01")) != total_con_recargo:
+            cursor.close()
+            conn.close()
+
+            return jsonify({
+                "ok": False,
+                "msg": f"El pago con tarjeta debe ser exactamente S/ {total_con_recargo:.2f}"
+            }), 400
+
+        monto_cobrado = total_con_recargo
+        vuelto = Decimal("0.00")
+
+    else:
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            "ok": False,
+            "msg": "Método inválido"
+        }), 400
+
+    # --------------------------------------------
+    # REGISTRAR PAGO PENDIENTE
+    # --------------------------------------------
     cursor = conn.cursor()
 
     cursor.execute("""
-        INSERT INTO pagos (
-            pedido_id, metodo, monto, vuelto, recargo, comprobante_url,
-            fecha_hora, estado
-        )
-        VALUES (
-            %s, %s, %s, %s, %s, %s,
-            CONVERT_TZ(NOW(), @@global.time_zone, '-05:00'),
-            'pagado'
-        )
-    """, (pedido_id, metodo, monto, vuelto, recargo, comprobante))
+        UPDATE pagos
+        SET metodo = %s,
+            monto = %s,
+            vuelto = %s,
+            recargo = %s,
+            comprobante_url = %s,
+            fecha_hora = CONVERT_TZ(
+                NOW(),
+                @@global.time_zone,
+                '-05:00'
+            ),
+            estado = 'pagado'
+        WHERE pedido_id = %s
+          AND estado = 'pendiente'
+        LIMIT 1
+    """, (
+        metodo,
+        monto_cobrado,
+        vuelto,
+        recargo,
+        comprobante,
+        pedido_id
+    ))
 
-    cursor.execute("UPDATE pedidos SET pagado = 1 WHERE id = %s", (pedido_id,))
+    # --------------------------------------------
+    # VERIFICAR QUE EL PAGO SÍ SE ACTUALIZÓ
+    # --------------------------------------------
+    if cursor.rowcount == 0:
+        conn.rollback()
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            "ok": False,
+            "msg": "No existe un pago pendiente para este pedido"
+        }), 400
+
+    # --------------------------------------------
+    # MARCAR PEDIDO COMO PAGADO
+    # --------------------------------------------
+    cursor.execute("""
+        UPDATE pedidos
+        SET pagado = 1
+        WHERE id = %s
+    """, (pedido_id,))
 
     conn.commit()
+
     cursor.close()
     conn.close()
 
-    return jsonify({"ok": True, "msg": "Pago procesado correctamente"})
+    return jsonify({
+        "ok": True,
+        "msg": "Pago registrado correctamente"
+    })
 
 @app.route("/api/admin/reportes/cierre", methods=["POST"])
 def api_generar_cierre_diario():
@@ -555,9 +943,17 @@ def api_generar_cierre_diario():
     cursor = conn.cursor(dictionary=True)
 
     # Evitar doble cierre
-    cursor.execute("SELECT * FROM cierres_diarios WHERE fecha=%s", (hoy,))
+    cursor.execute(
+        "SELECT * FROM cierres_diarios WHERE fecha = %s",
+        (hoy,)
+
+    )
+
     if cursor.fetchone():
-        return jsonify({"ok": False, "msg": "El cierre de hoy ya fue realizado"})
+        return jsonify({
+            "ok": False,
+            "msg": "El cierre de hoy ya fue realizado"
+        })
 
     # Obtener pagos del día
     cursor.execute("""
@@ -580,7 +976,7 @@ def api_generar_cierre_diario():
         elif p["metodo"] == "tarjeta":
             tot_tarjeta = p["total"]; cnt_tarj = p["cantidad"]
 
-    total_general = tot_efectivo + tot_yape + tot_tarjeta
+    total_general = float(tot_efectivo or 0) + float(tot_yape or 0) + float(tot_tarjeta or 0)
     cant_total = cnt_efec + cnt_yape + cnt_tarj
 
     # Guardar cierre
@@ -659,184 +1055,157 @@ def api_generar_cierre_diario():
 
 
 
-@app.route("/api/admin/reportes/diario", methods=["GET"])
+@app.route("/api/admin/reportes/diario")
 def api_reporte_diario():
-    if "usuario" not in session or session.get("rol") != "admin":
-        return jsonify({"ok": False}), 401
-
-    hoy = datetime.now().date()
-
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    # Toma directamente de PAGOS
     cursor.execute("""
-        SELECT metodo, SUM(monto) AS total
+        SELECT 
+            SUM(CASE WHEN metodo='efectivo' THEN monto ELSE 0 END) AS total_efectivo,
+            SUM(CASE WHEN metodo='yape' THEN monto ELSE 0 END) AS total_yape,
+            SUM(CASE WHEN metodo='tarjeta' THEN monto ELSE 0 END) AS total_tarjeta
         FROM pagos
-        WHERE DATE(fecha_hora) = %s AND estado='pagado'
-        GROUP BY metodo
-    """, (hoy,))
-
-    pagos = cursor.fetchall()
-
-    tot_efec = tot_yape = tot_tarj = 0
-
-    for p in pagos:
-        if p["metodo"] == "efectivo":
-            tot_efec = p["total"]
-        elif p["metodo"] == "yape":
-            tot_yape = p["total"]
-        elif p["metodo"] == "tarjeta":
-            tot_tarj = p["total"]
-
-    total_general = tot_efec + tot_yape + tot_tarj
-
+        WHERE DATE(fecha_hora) = CURDATE()
+        AND estado = 'pagado'
+    """)
+    
+    row = cursor.fetchone()
     cursor.close()
     conn.close()
+
+    total_general = (
+        float(row["total_efectivo"] or 0) +
+        float(row["total_yape"] or 0) +
+        float(row["total_tarjeta"] or 0)
+    )
 
     return jsonify({
         "ok": True,
         "data": {
-            "fecha": str(hoy),
-            "total_efectivo": tot_efec,
-            "total_yape": tot_yape,
-            "total_tarjeta": tot_tarj,
+            "fecha": str(date.today()),
+            "total_efectivo": float(row["total_efectivo"] or 0),
+            "total_yape": float(row["total_yape"] or 0),
+            "total_tarjeta": float(row["total_tarjeta"] or 0),
             "total_general": total_general
         }
     })
 
 
-@app.route("/api/admin/reportes/semanal", methods=["GET"])
-def api_reporte_semanal():
-    if "usuario" not in session or session.get("rol") != "admin":
-        return jsonify({"ok": False}), 401
 
-    hoy = datetime.now().date()
-    inicio = hoy - timedelta(days=hoy.weekday())  # Lunes
-    fin = inicio + timedelta(days=6)             # Domingo
+
+@app.route("/api/admin/reportes/semanal")
+def api_reporte_semanal():
 
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    # SE TOMA SOLO DE PAGOS (NO DEPENDE DEL CIERRE)
+    # lunes de esta semana
+    cursor.execute("SELECT DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) AS inicio")
+    inicio_semana = cursor.fetchone()["inicio"]
+
     cursor.execute("""
-        SELECT DATE(fecha_hora) AS fecha, metodo, SUM(monto) AS total
+        SELECT 
+            DATE(fecha_hora) AS fecha,
+            SUM(CASE WHEN metodo='efectivo' THEN monto ELSE 0 END) AS total_efectivo,
+            SUM(CASE WHEN metodo='yape' THEN monto ELSE 0 END) AS total_yape,
+            SUM(CASE WHEN metodo='tarjeta' THEN monto ELSE 0 END) AS total_tarjeta
         FROM pagos
-        WHERE DATE(fecha_hora) BETWEEN %s AND %s
-        AND estado='pagado'
-        GROUP BY DATE(fecha_hora), metodo
-        ORDER BY fecha ASC
-    """, (inicio, fin))
+        WHERE DATE(fecha_hora) BETWEEN %s AND CURDATE()
+        AND estado = 'pagado'
+        GROUP BY DATE(fecha_hora)
+        ORDER BY fecha
+    """, (inicio_semana,))
 
-    rows = cursor.fetchall()
+    dias = cursor.fetchall()
+    cursor.close()
+    conn.close()
 
-    dias = {}
-    for r in rows:
-        f = str(r["fecha"])
-        if f not in dias:
-            dias[f] = {"fecha": f, "total_efectivo": 0, "total_yape": 0, "total_tarjeta": 0, "total_general": 0}
-
-        if r["metodo"] == "efectivo":
-            dias[f]["total_efectivo"] = r["total"]
-        elif r["metodo"] == "yape":
-            dias[f]["total_yape"] = r["total"]
-        elif r["metodo"] == "tarjeta":
-            dias[f]["total_tarjeta"] = r["total"]
-
-        dias[f]["total_general"] = (
-            dias[f]["total_efectivo"] +
-            dias[f]["total_yape"] +
-            dias[f]["total_tarjeta"]
+    for d in dias:
+        d["total_efectivo"] = float(d["total_efectivo"] or 0)
+        d["total_yape"] = float(d["total_yape"] or 0)
+        d["total_tarjeta"] = float(d["total_tarjeta"] or 0)
+        d["total_general"] = (
+            d["total_efectivo"] +
+            d["total_yape"] +
+            d["total_tarjeta"]
         )
 
-    cursor.close()
-    conn.close()
+    return jsonify({"ok": True, "dias": dias})
 
-    return jsonify({
-        "ok": True,
-        "dias": list(dias.values())
-    })
-
-
-@app.route("/api/admin/boleta/<int:pedido_id>", methods=["GET"])
-def api_boleta(pedido_id):
-    if "usuario" not in session or session.get("rol") != "admin":
-        return jsonify({"ok": False}), 401
+@app.route("/api/admin/reportes/semanal/pdf")
+def api_reporte_semanal_pdf():
 
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    # Obtener datos del pedido
-    cursor.execute("SELECT * FROM pedidos WHERE id = %s", (pedido_id,))
-    pedido = cursor.fetchone()
+    # Inicio de semana (lunes)
+    cursor.execute("SELECT DATE_SUB(CURDATE(), INTERVAL (WEEKDAY(CURDATE())) DAY) AS inicio")
+    inicio_semana = cursor.fetchone()["inicio"]
 
-    # Obtener items
     cursor.execute("""
-        SELECT prod.nombre, pi.cantidad, pi.subtotal 
-        FROM pedido_items pi
-        JOIN productos prod ON prod.id = pi.producto_id
-        WHERE pi.pedido_id = %s
-    """, (pedido_id,))
-    items = cursor.fetchall()
+        SELECT 
+            DATE(fecha_hora) AS fecha,
+            IFNULL(SUM(CASE WHEN metodo='efectivo' THEN monto END),0) AS efectivo,
+            IFNULL(SUM(CASE WHEN metodo='yape' THEN monto END),0) AS yape,
+            IFNULL(SUM(CASE WHEN metodo='tarjeta' THEN monto END),0) AS tarjeta
+        FROM pagos
+        WHERE fecha_hora >= %s AND estado='pagado'
+        GROUP BY DATE(fecha_hora)
+        ORDER BY fecha
+    """, (inicio_semana,))
 
+    dias = cursor.fetchall()
     cursor.close()
     conn.close()
 
-    # Crear PDF en memoria
-    buffer = io.BytesIO()
+    # Crear PDF
+    buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
-    pdf.setTitle(f"Boleta_{pedido_id}")
 
-    # Header
-    pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawString(200, 750, "CAFETERÍA KUNNSKAP")
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(180, 750, "REPORTE SEMANAL")
+
+    y = 720
     pdf.setFont("Helvetica", 10)
-    pdf.drawString(230, 735, "RUC: 12345678901")
 
-    # Datos de boleta
-    pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(50, 700, f"BOLETA DE VENTA - #{pedido_id}")
+    for d in dias:
+        total = d["efectivo"] + d["yape"] + d["tarjeta"]
 
-    pdf.setFont("Helvetica", 10)
-    pdf.drawString(50, 680, f"Cliente: {pedido['cliente_nombre']}")
-    pdf.drawString(50, 665, f"Mesa: {pedido['mesa']}")
-    pdf.drawString(50, 650, f"Fecha: {pedido['fecha_hora']}")
+        pdf.setFont("Helvetica-Bold", 12)
+        pdf.drawString(50, y, f"{d['fecha']}")
+        y -= 18
 
-    # Tabla
-    y = 610
-    pdf.setFont("Helvetica-Bold", 10)
-    pdf.drawString(50, y, "Producto")
-    pdf.drawString(250, y, "Cantidad")
-    pdf.drawString(350, y, "Subtotal")
+        pdf.setFont("Helvetica", 10)
+        pdf.drawString(60, y, f"Efectivo: S/ {d['efectivo']:.2f}")
+        y -= 15
+        pdf.drawString(60, y, f"Yape: S/ {d['yape']:.2f}")
+        y -= 15
+        pdf.drawString(60, y, f"Tarjeta: S/ {d['tarjeta']:.2f}")
+        y -= 15
 
-    pdf.line(45, y-5, 560, y-5)
+        pdf.setFont("Helvetica-Bold", 10)
+        pdf.drawString(60, y, f"TOTAL DÍA: S/ {total:.2f}")
+        y -= 25
 
-    pdf.setFont("Helvetica", 10)
-    y -= 25
+        pdf.line(50, y, 550, y)
+        y -= 25
 
-    total = 0
-    for item in items:
-        pdf.drawString(50, y, item["nombre"])
-        pdf.drawString(260, y, str(item["cantidad"]))
-        pdf.drawString(360, y, f"S/ {item['subtotal']:.2f}")
-        total += item["subtotal"]
-        y -= 20
+        if y < 80:  # Nueva página
+            pdf.showPage()
+            y = 750
 
-    # Total final
-    pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(50, y - 20, f"TOTAL: S/ {total:.2f}")
-
-    pdf.showPage()
     pdf.save()
-
     buffer.seek(0)
-    
+
     return send_file(
         buffer,
         as_attachment=True,
-        download_name=f"Boleta_{pedido_id}.pdf",
+        download_name="Reporte_Semanal.pdf",
         mimetype="application/pdf"
     )
+
+
 @app.route("/api/admin/factura/<int:pedido_id>", methods=["POST"])
 def api_factura(pedido_id):
     if "usuario" not in session or session.get("rol") != "admin":
@@ -850,12 +1219,21 @@ def api_factura(pedido_id):
     if not razon or not ruc:
         return jsonify({"ok": False, "msg": "Datos incompletos"}), 400
 
+    ruc = str(ruc).strip()
+    if not ruc.isdigit() or len(ruc) != 11:
+        return jsonify({"ok": False, "msg": "El RUC debe tener 11 dígitos"}), 400
+
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
     # Obtener pedido
     cursor.execute("SELECT * FROM pedidos WHERE id = %s", (pedido_id,))
     pedido = cursor.fetchone()
+
+    if not pedido:
+        cursor.close()
+        conn.close()
+        return jsonify({"ok": False, "msg": "Pedido no encontrado"}), 404
 
     # items
     cursor.execute("""
@@ -908,7 +1286,7 @@ def api_factura(pedido_id):
         pdf.drawString(50, y, item["nombre"])
         pdf.drawString(260, y, str(item["cantidad"]))
         pdf.drawString(360, y, f"S/ {item['subtotal']:.2f}")
-        total += item["subtotal"]
+        total += float(item["subtotal"] or 0)
         y -= 20
 
     pdf.setFont("Helvetica-Bold", 12)
@@ -1023,22 +1401,34 @@ def api_agregar_usuario():
     if session.get("rol") != "admin":
         return jsonify({"ok": False, "msg": "No autorizado"}), 401
 
-    data = request.get_json()
-    usuario = data["usuario"]
-    clave = data["clave"]
-    rol = data["rol"]
+    data = request.get_json(silent=True) or {}
+    usuario = str(data.get("usuario", "")).strip()
+    clave = str(data.get("clave", ""))
+    rol = str(data.get("rol", "")).strip().lower()
+
+    if not usuario or not clave:
+        return jsonify({"ok": False, "msg": "Usuario y contraseña son requeridos"}), 400
 
     if rol not in ["admin", "mesero", "caja"]:
         return jsonify({"ok": False, "msg": "Rol inválido"}), 400
 
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO usuarios (usuario, clave, rol, activo)
-        VALUES (%s, %s, %s, 1)
-    """, (usuario, clave, rol))
-    conn.commit()
-    return jsonify({"ok": True, "msg": "Usuario registrado"})
+
+    try:
+        cursor.execute("""
+            INSERT INTO usuarios (usuario, clave, rol, activo)
+            VALUES (%s, %s, %s, 1)
+        """, (usuario, clave, rol))
+        conn.commit()
+        return jsonify({"ok": True, "msg": "Usuario registrado"})
+    except Exception as e:
+        conn.rollback()
+        print("ERROR al registrar usuario:", e)
+        return jsonify({"ok": False, "msg": "No se pudo registrar el usuario. Verifique que no esté repetido."}), 400
+    finally:
+        cursor.close()
+        conn.close()
 
 
 @app.route("/api/admin/usuarios/update/<int:user_id>", methods=["POST"])
@@ -1046,18 +1436,36 @@ def api_update_usuario(user_id):
     if session.get("rol") != "admin":
         return jsonify({"ok": False, "msg": "No autorizado"}), 401
 
-    data = request.get_json()
-    rol = data["rol"]
-    activo = data["activo"]
+    data = request.get_json(silent=True) or {}
+    rol = str(data.get("rol", "")).strip().lower()
+    activo = data.get("activo")
+
+    if rol not in ["admin", "mesero", "caja"]:
+        return jsonify({"ok": False, "msg": "Rol inválido"}), 400
+
+    if activo not in [0, 1, True, False, "0", "1"]:
+        return jsonify({"ok": False, "msg": "Estado inválido"}), 400
+
+    activo = 1 if str(activo).lower() in ("1", "true") else 0
 
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE usuarios SET rol=%s, activo=%s WHERE id=%s
-    """, (rol, activo, user_id))
 
-    conn.commit()
-    return jsonify({"ok": True, "msg": "Usuario actualizado"})
+    try:
+        cursor.execute("""
+            UPDATE usuarios SET rol=%s, activo=%s WHERE id=%s
+        """, (rol, activo, user_id))
+
+        if cursor.rowcount == 0:
+            conn.rollback()
+            return jsonify({"ok": False, "msg": "Usuario no encontrado"}), 404
+
+        conn.commit()
+        return jsonify({"ok": True, "msg": "Usuario actualizado"})
+    finally:
+        cursor.close()
+        conn.close()
+
 
 @app.route("/api/admin/usuarios", methods=["GET"])
 def api_listar_usuarios():
@@ -1089,6 +1497,7 @@ def api_recetario_listar():
     recetas = cursor.fetchall()
 
     cursor.close()
+    
     conn.close()
 
     return jsonify({"ok": True, "recetas": recetas})

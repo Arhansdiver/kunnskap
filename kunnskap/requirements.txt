@@ -1,5 +1,6 @@
-Flask==2.3.3
-gunicorn==21.2.0
-mysql-connector-python==8.0.33
-python-dotenv==1.0.1
-reportlab==4.2.0
+Flask==3.1.2
+gunicorn==23.0.0
+mysql-connector-python==9.4.0
+reportlab==4.4.3
+fpdf2==2.8.4
+passlib==1.7.4
